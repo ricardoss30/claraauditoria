@@ -1,114 +1,104 @@
 
 
-# Fase 4: Relatorios, Auditoria e Notificacoes
+# Validacao e Correcoes do Projeto C.L.A.R.A
 
-## Resumo
+## Resultado da Analise
 
-Com as fases 1-3 concluidas (autenticacao, dashboard, processamento de documentos com IA), esta fase foca em tornar o sistema mais completo para uso real: visualizacao de logs de auditoria, exportacao de relatorios, notificacoes por email para alertas criticos, e melhorias de UX.
-
----
-
-## 1. Pagina de Auditoria (Audit Logs)
-
-A tabela `audit_logs` ja existe no banco mas nao tem interface. Criar pagina `/audit`:
-
-- **Tabela paginada** com colunas: acao, tipo de recurso, usuario, data/hora, IP, detalhes
-- **Filtros**: por acao (create, update, delete), por tipo de recurso, por data
-- **Busca**: por usuario ou recurso
-- **Apenas admin/auditor** tem acesso
-- **Registro automatico**: criar trigger ou logica na edge function para registrar acoes importantes (upload de documento, mudanca de status de alerta, criacao/edicao de regra)
+Apos inspecionar todas as paginas, hooks, edge functions, banco de dados e logs do console, identifiquei **5 problemas** que precisam ser corrigidos e **2 melhorias recomendadas**.
 
 ---
 
-## 2. Exportacao de Relatorios (CSV/PDF)
+## Problemas Encontrados
 
-Adicionar botoes de exportacao nas paginas existentes:
+### 1. Warning no Console: forwardRef em Skeleton e EmptyState
 
-- **Documentos**: exportar lista filtrada em CSV
-- **Alertas**: exportar alertas com detalhes em CSV
-- **Dashboard**: botao para gerar relatorio resumido (quantidade de documentos, alertas por categoria, score medio de risco)
-- Usar geracao de CSV no frontend (sem dependencia externa)
+**Onde:** Pagina `/audit` (AuditLogs.tsx)
+**Problema:** Os componentes `Skeleton` e `EmptyState` sao function components simples, mas estao sendo usados dentro de `SidebarMenuButton asChild` ou similar contexto que tenta passar refs. O React emite warnings no console.
+**Correcao:** Nao e necessario alterar Skeleton/EmptyState pois o warning vem do contexto de renderizacao condicional no AuditLogs onde esses componentes sao renderizados diretamente dentro do `CardContent`. Na verdade, o warning pode vir do fato de que AuditLogs e renderizado como child de ProtectedRoute que usa `<>{children}</>`. Isso e inofensivo, mas para limpar o console, podemos verificar se ha algum componente wrapper passando ref indevidamente.
+
+**Acao:** Investigar e corrigir o warning adicionando `React.forwardRef` ao `Skeleton` e `EmptyState` se necessario.
+
+### 2. Reprocessar Documento cria NOVO documento em vez de reprocessar
+
+**Onde:** `DocumentDetail.tsx` linha 42-48
+**Problema:** O botao "Reprocessar" chama `upload()` que cria um novo registro em `procurement_documents` em vez de reprocessar o documento existente.
+**Correcao:** Criar uma funcao `reprocess` no hook `useDocumentUpload` que chama apenas a edge function com o `document_id` existente, sem criar novo registro.
+
+### 3. Politica RLS permissiva detectada pelo linter
+
+**Onde:** Banco de dados
+**Problema:** O linter do Supabase detectou uma politica RLS com `USING (true)` em operacao de INSERT/UPDATE/DELETE, o que e excessivamente permissivo.
+**Correcao:** Identificar a politica especifica e restringir ao contexto adequado (ex: service_role ou usuario autenticado com role especifica).
+
+### 4. Edge Functions sem verificacao JWT
+
+**Onde:** `supabase/config.toml`
+**Problema:** Ambas as edge functions (`process-document` e `send-notification`) tem `verify_jwt = false`, permitindo chamadas nao autenticadas.
+**Correcao:** `send-notification` deve ter `verify_jwt = false` pois e chamada internamente pela `process-document`. A `process-document` e chamada pelo frontend via `supabase.functions.invoke()` que ja envia o token, entao pode manter `verify_jwt = false` pois o service role key e usado internamente. Isso e aceitavel no contexto atual.
+
+### 5. Categorias de regras nao coincidem com alert_type da IA
+
+**Onde:** Edge function `process-document` e pagina `Rules.tsx`
+**Problema:** As regras usam categorias como `financeiro`, `competitividade`, `temporal` (banco), mas a IA gera `alert_type` como `sobrepreco`, `direcionamento`, `prazo_exiguo`. O `ruleMap` na edge function faz match por `category`, mas os valores nao coincidem. Resultado: `rule_id` nunca sera preenchido nos alertas.
+**Correcao:** Alinhar as categorias. As regras no banco usam categorias diferentes das que a IA retorna. Precisamos padronizar usando os mesmos valores tanto nas regras quanto no prompt da IA, ou ajustar o mapeamento.
 
 ---
 
-## 3. Notificacoes por Email
+## Melhorias Recomendadas
 
-Criar edge function `send-notification` para enviar emails quando:
+### A. Dark mode no icone Moon do ThemeToggle
 
-- Um alerta de **severidade 4 ou 5** e gerado automaticamente
-- Um documento muda para status **error**
-- Usar Supabase integrado (ou Resend se configurado) para envio
-- Configuracao de preferencias de notificacao na pagina de Settings
+**Onde:** `ThemeToggle.tsx`
+**Problema menor:** O icone Moon usa `position: absolute` implicitamente via classes, mas como esta dentro de um Button com `justify-start`, o posicionamento pode ficar desalinhado em alguns navegadores.
+**Melhoria:** Usar uma abordagem condicional simples em vez de animacoes CSS com absolute.
 
----
+### B. Exportar CSV sem dados mostra botao habilitado no Dashboard
 
-## 4. Melhorias de UX
-
-- **Dark mode**: toggle na sidebar usando `next-themes` (ja instalado)
-- **Responsividade mobile**: ajustar tabelas e layout para telas pequenas
-- **Breadcrumbs**: navegacao contextual nas paginas de detalhe
-- **Loading states aprimorados**: skeleton loaders mais fieis ao layout final
-- **Confirmacao de acoes destrutivas**: AlertDialog antes de excluir regras, fontes ou descartar alertas
+**Onde:** `Dashboard.tsx`
+**Problema menor:** O botao "Exportar Resumo" no Dashboard nao tem condicao `disabled`, entao pode exportar mesmo sem dados carregados.
 
 ---
 
-## 5. Edge Function para Registrar Auditoria
+## Plano de Implementacao
 
-Criar edge function `log-audit` ou adicionar logica na `process-document` existente para:
+### Passo 1: Corrigir reprocessamento de documento
+- Adicionar funcao `reprocess(documentId, content)` ao hook `useDocumentUpload`
+- Alterar `DocumentDetail.tsx` para usar `reprocess` em vez de `upload`
 
-- Registrar upload de documentos
-- Registrar mudancas de status de alertas
-- Registrar criacao/edicao/exclusao de regras
-- Incluir user_id e IP quando disponivel
+### Passo 2: Alinhar categorias de regras com tipos de alerta
+- Migrar as categorias das regras existentes no banco para `sobrepreco`, `direcionamento`, `prazo_exiguo`
+- Atualizar o `Select` de categorias em `Rules.tsx` para usar os mesmos valores
+- Atualizar o prompt da IA para referenciar as categorias corretas
+
+### Passo 3: Corrigir warnings de forwardRef
+- Adicionar `React.forwardRef` ao componente `Skeleton`
+- Adicionar `React.forwardRef` ao componente `EmptyState`
+
+### Passo 4: Investigar e corrigir politica RLS permissiva
+- Consultar as politicas existentes para identificar qual usa `USING (true)` em operacoes de escrita
+- Ajustar para restringir ao contexto adequado
+
+### Passo 5: Pequenos ajustes de UX
+- Corrigir posicionamento do icone Moon no ThemeToggle
+- Adicionar `disabled` ao botao de exportar no Dashboard enquanto dados carregam
 
 ---
 
 ## Detalhes Tecnicos
 
-### Arquivos a criar:
-
-| Arquivo | Descricao |
-|---|---|
-| `src/pages/AuditLogs.tsx` | Pagina de logs de auditoria |
-| `src/hooks/useAuditLogs.ts` | Hook para consulta de audit_logs |
-| `src/hooks/useExport.ts` | Hook utilitario para exportacao CSV |
-| `src/components/ThemeToggle.tsx` | Toggle de dark/light mode |
-| `src/components/ExportButton.tsx` | Botao reutilizavel de exportacao |
-| `supabase/functions/send-notification/index.ts` | Edge function de notificacao |
-
 ### Arquivos a modificar:
 
-| Arquivo | Descricao |
+| Arquivo | Correcao |
 |---|---|
-| `src/App.tsx` | Adicionar rota `/audit` |
-| `src/components/layout/AppSidebar.tsx` | Adicionar item "Auditoria" no menu |
-| `src/components/layout/AppLayout.tsx` | Integrar ThemeProvider e dark mode |
-| `src/pages/Dashboard.tsx` | Adicionar botao de exportar relatorio |
-| `src/pages/Documents.tsx` | Adicionar botao de exportar CSV |
-| `src/pages/Alerts.tsx` | Adicionar botao de exportar CSV |
-| `src/pages/Settings.tsx` | Adicionar secao de preferencias de notificacao |
-| `src/hooks/useAlerts.ts` | Adicionar logica de registro de auditoria nas mutacoes |
-| `src/hooks/useRules.ts` | Adicionar logica de registro de auditoria |
-| `supabase/config.toml` | Registrar edge function send-notification |
-| `src/index.css` | Ajustes para dark mode |
+| `src/hooks/useDocumentUpload.ts` | Adicionar funcao `reprocess()` |
+| `src/pages/DocumentDetail.tsx` | Usar `reprocess` no botao Reprocessar |
+| `src/components/ui/skeleton.tsx` | Adicionar forwardRef |
+| `src/components/EmptyState.tsx` | Adicionar forwardRef |
+| `src/pages/Rules.tsx` | Alinhar categorias do Select |
+| `src/components/ThemeToggle.tsx` | Corrigir icone Moon |
+| `src/pages/Dashboard.tsx` | Adicionar disabled no export |
+| `supabase/functions/process-document/index.ts` | Ajustar mapeamento de categorias |
 
-### Fluxo de Notificacao:
-
-1. Edge function `process-document` gera alerta com severidade >= 4
-2. Apos inserir alerta, chama `send-notification` com dados do alerta
-3. `send-notification` busca usuarios com role admin/gestor
-4. Envia email com detalhes do alerta (titulo, documento, severidade, evidencia)
-
-### Exportacao CSV:
-
-- Funcao utilitaria que converte array de objetos em string CSV
-- Download via Blob URL no navegador
-- Sem dependencias externas necessarias
-
-### Dark Mode:
-
-- `next-themes` ja esta instalado
-- Wrapper `ThemeProvider` no App.tsx
-- Toggle na sidebar com icone sol/lua
-- Classes Tailwind `dark:` para ajustes pontuais
+### Migracao SQL:
+- Atualizar categorias das regras existentes: `financeiro` -> `sobrepreco`, `competitividade` -> `direcionamento`, `temporal` -> `prazo_exiguo`
 
