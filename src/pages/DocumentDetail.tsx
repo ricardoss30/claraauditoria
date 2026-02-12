@@ -11,6 +11,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Download, RefreshCw, FileText } from "lucide-react";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
 import { useToast } from "@/hooks/use-toast";
+import { ExportButton } from "@/components/ExportButton";
+import { exportToCSV } from "@/hooks/useExport";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export default function DocumentDetail() {
@@ -100,6 +102,36 @@ export default function DocumentDetail() {
             <Button variant="outline" size="sm" onClick={handleReprocess} disabled={["uploading", "extracting", "analyzing"].includes(step)}>
               <RefreshCw className="h-4 w-4 mr-1" /> Reprocessar
             </Button>
+            <ExportButton
+              onClick={() => {
+                const rows: Record<string, unknown>[] = [
+                  {
+                    seção: "Documento",
+                    título: doc.title,
+                    órgão: doc.agency || "",
+                    modalidade: doc.modality || "",
+                    valor_estimado: doc.estimated_value != null ? doc.estimated_value : "",
+                    prazo: doc.deadline_at ? new Date(doc.deadline_at).toLocaleDateString("pt-BR") : "",
+                    descrição: doc.description || "",
+                    status: doc.status,
+                    risco: doc.risk_score ?? "",
+                  },
+                  ...(alerts?.map((a) => ({
+                    seção: "Alerta",
+                    título: a.title,
+                    descrição: a.description || "",
+                    severidade: a.severity,
+                    status: a.status,
+                    órgão: "",
+                    modalidade: "",
+                    valor_estimado: "",
+                    prazo: "",
+                    risco: "",
+                  })) || []),
+                ];
+                exportToCSV(rows, `documento-${doc.title.slice(0, 30)}`);
+              }}
+            />
           </div>
         </div>
 
