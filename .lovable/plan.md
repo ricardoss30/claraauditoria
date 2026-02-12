@@ -1,111 +1,122 @@
 
 
-# Fase 2: Dashboard com KPIs e Listagem de Documentos
+# Fase 3: Processamento de Documentos com Upload e Analise por IA
 
 ## Resumo
 
-Com a Fase 1 concluida (banco de dados, autenticacao e layout), esta fase implementa o Dashboard com dados reais do Supabase e a pagina de Documentos com listagem, filtros e busca.
+Implementar o fluxo completo de processamento de documentos de licitacao: upload de arquivos (PDF/texto), extracao automatica de dados estruturados via Lovable AI (Gemini), analise de risco baseada nas regras cadastradas, e geracao automatica de alertas.
 
 ---
 
-## 1. Dashboard - KPIs Dinamicos
+## 1. Storage - Bucket para Documentos
 
-Substituir os valores estaticos do Dashboard por consultas reais ao Supabase:
+Criar um bucket no Supabase Storage para armazenar os arquivos enviados:
 
-- **Documentos Analisados**: contagem de `procurement_documents` com status `processed`
-- **Alertas Pendentes**: contagem de `risk_alerts` com status `pending`
-- **Regras Ativas**: contagem de `risk_rules` com `is_active = true`
-- **Taxa de Precisao**: percentual de alertas confirmados vs total revisados
+- Bucket `documents` (privado) com politicas RLS para usuarios autenticados
+- Upload permitido para admin/gestor
+- Leitura permitida para todos autenticados
 
-Usar `@tanstack/react-query` para todas as consultas com cache automatico.
+**Migracao SQL** para criar bucket e politicas de acesso.
 
-## 2. Dashboard - Graficos com Recharts
+---
 
-Adicionar secao de graficos abaixo dos KPIs:
+## 2. Edge Function: `process-document`
 
-- **Grafico de barras**: alertas por categoria (sobrepreco, direcionamento, prazo exiguo)
-- **Grafico de linha**: evolucao de documentos processados ao longo do tempo (ultimos 30 dias)
-- **Tabela de alertas recentes**: ultimos 5 alertas com titulo, severidade, status e data
+Criar uma edge function que recebe o conteudo de um documento e usa Lovable AI para:
 
-## 3. Pagina de Documentos
+1. **Extrair dados estruturados** usando tool calling (nao JSON livre):
+   - Titulo, orgao, modalidade, valor estimado, prazo, descricao
+2. **Analisar riscos** contra as regras ativas do banco:
+   - Sobrepeco: comparar valor com referencias
+   - Direcionamento de marca: detectar mencoes a marcas
+   - Prazo exiguo: verificar se prazo e inferior ao minimo legal
+3. **Calcular score de risco** (0-100)
+4. **Gerar alertas** automaticamente na tabela `risk_alerts`
+5. **Salvar cache** da analise em `text_analysis_cache`
 
-Implementar a pagina completa de listagem de documentos:
+A edge function usara o modelo `google/gemini-3-flash-preview` via Lovable AI Gateway.
 
-- **Tabela paginada** com colunas: titulo, orgao, modalidade, valor estimado, status, data de publicacao, score de risco
-- **Filtros**: por status (pending, processing, processed, error), por modalidade
-- **Busca**: campo de texto para buscar por titulo ou orgao
-- **Badge de status** com cores diferenciadas por estado
-- **Badge de risco** com cores por faixa de score (0-30 verde, 31-60 amarelo, 61-100 vermelho)
-- **Estado vazio**: mensagem amigavel quando nao ha documentos
+---
 
-## 4. Pagina de Alertas
+## 3. Frontend - Dialog de Upload
 
-Implementar listagem de alertas com workflow de revisao:
+Adicionar botao "Novo Documento" na pagina de Documentos com dialog contendo:
 
-- **Tabela** com colunas: titulo, tipo, severidade (1-5 estrelas), documento vinculado, status, data
-- **Filtros**: por status (pending, under_review, confirmed, dismissed), por severidade, por tipo
-- **Acoes**: botoes para alterar status (confirmar, descartar, solicitar revisao)
-- **Dialog de revisao**: ao clicar em um alerta, abrir dialog com detalhes, evidencia e campo para notas de revisao
-- **Badges de severidade**: cores graduais de verde (1) a vermelho (5)
+- **Upload de arquivo** (PDF ate 20MB) com arrastar-e-soltar
+- **Entrada manual de texto** (textarea) como alternativa ao upload
+- **Campos opcionais**: titulo, orgao, modalidade (preenchidos automaticamente pela IA)
+- **Barra de progresso** mostrando etapas: upload, extracao, analise, concluido
+- **Feedback em tempo real** com status de processamento
 
-## 5. Pagina de Regras
+---
 
-Implementar CRUD de regras de risco:
+## 4. Frontend - Pagina de Detalhes do Documento
 
-- **Listagem** em cards com nome, descricao, categoria, tipo, severidade, status ativo/inativo
-- **Switch ativar/desativar**: toggle inline para cada regra
-- **Dialog de criacao/edicao**: formulario com campos nome, descricao, categoria, tipo de regra (keyword, numerico, padrao, IA), severidade (slider 1-5), parametros (JSON)
-- **Botao de excluir**: com confirmacao via AlertDialog
-- **Apenas admins** podem criar/editar/excluir regras (validacao no frontend + RLS no backend)
+Criar rota `/documents/:id` com visualizacao completa:
 
-## 6. Pagina de Fontes de Dados
+- **Dados extraidos**: titulo, orgao, modalidade, valor, prazo, descricao
+- **Score de risco** com indicador visual
+- **Lista de alertas** vinculados ao documento
+- **Conteudo original** do documento (texto bruto)
+- **Link para download** do arquivo original
+- **Botao "Reprocessar"** para refazer a analise
 
-Implementar gestao de fontes:
+---
 
-- **Listagem** em cards com nome, tipo, URL base, status ativo/inativo, ultima sincronizacao
-- **Dialog de criacao/edicao**: formulario com nome, tipo (api/scraping), URL base, configuracoes
-- **Switch ativar/desativar**: toggle inline
-- **Indicador de ultima sincronizacao**: data/hora formatada ou "Nunca sincronizado"
-- **Apenas admin/gestor** podem gerenciar fontes
+## 5. Hook `useDocumentUpload`
 
-## 7. Pagina de Configuracoes (Admin)
+Novo hook para gerenciar o fluxo de upload:
 
-Implementar gestao de usuarios e roles:
-
-- **Lista de usuarios**: tabela com email, nome, roles, data de cadastro
-- **Gerenciar roles**: botoes para adicionar/remover roles de usuarios
-- **Apenas admins** tem acesso a esta pagina (validacao no frontend + RLS)
+- Upload do arquivo para Supabase Storage
+- Criacao do registro em `procurement_documents` com status `pending`
+- Chamada a edge function `process-document`
+- Atualizacao do status em tempo real (pending -> processing -> processed/error)
+- Invalidacao do cache do react-query apos conclusao
 
 ---
 
 ## Detalhes Tecnicos
 
-**Hooks de dados a criar (usando @tanstack/react-query):**
+### Arquivos a criar:
 
 | Arquivo | Descricao |
 |---|---|
-| `src/hooks/useDashboardStats.ts` | Consultas agregadas para KPIs |
-| `src/hooks/useDocuments.ts` | CRUD e listagem de documentos |
-| `src/hooks/useAlerts.ts` | CRUD e listagem de alertas |
-| `src/hooks/useRules.ts` | CRUD e listagem de regras |
-| `src/hooks/useSources.ts` | CRUD e listagem de fontes |
-| `src/hooks/useUsers.ts` | Listagem de usuarios e gestao de roles (admin) |
+| `supabase/migrations/...` | Bucket de storage + politicas |
+| `supabase/functions/process-document/index.ts` | Edge function de processamento com IA |
+| `src/hooks/useDocumentUpload.ts` | Hook de upload e processamento |
+| `src/components/DocumentUploadDialog.tsx` | Dialog de upload com progresso |
+| `src/pages/DocumentDetail.tsx` | Pagina de detalhes do documento |
 
-**Paginas a modificar:**
+### Arquivos a modificar:
 
-1. `src/pages/Dashboard.tsx` - KPIs dinamicos + graficos Recharts + tabela de alertas recentes
-2. `src/pages/Documents.tsx` - Tabela paginada com filtros e busca
-3. `src/pages/Alerts.tsx` - Listagem com workflow de revisao
-4. `src/pages/Rules.tsx` - CRUD completo de regras
-5. `src/pages/Sources.tsx` - Gestao de fontes de dados
-6. `src/pages/Settings.tsx` - Gestao de usuarios e roles
+| Arquivo | Descricao |
+|---|---|
+| `src/pages/Documents.tsx` | Adicionar botao "Novo Documento" e link para detalhes |
+| `src/App.tsx` | Adicionar rota `/documents/:id` |
+| `supabase/config.toml` | Registrar a edge function |
 
-**Componentes auxiliares a criar:**
+### Fluxo de Processamento:
 
-- `src/components/StatusBadge.tsx` - Badge reutilizavel para status de documentos e alertas
-- `src/components/RiskScoreBadge.tsx` - Badge com cor graduada por score de risco
-- `src/components/SeverityIndicator.tsx` - Indicador visual de severidade (1-5)
-- `src/components/EmptyState.tsx` - Componente para estados vazios
+1. Usuario faz upload do arquivo ou cola texto
+2. Arquivo salvo no Storage, registro criado com status `pending`
+3. Edge function chamada com o conteudo do documento
+4. Lovable AI extrai dados estruturados (tool calling)
+5. Sistema compara dados contra regras ativas
+6. Score de risco calculado, alertas criados
+7. Documento atualizado para status `processed`
+8. Interface atualiza automaticamente via react-query
 
-**Biblioteca ja instalada:** `recharts` (para graficos)
+### Modelo de IA:
+
+- **Modelo**: `google/gemini-3-flash-preview` (default Lovable AI)
+- **Abordagem**: Tool calling para extracao estruturada (nao JSON livre)
+- **Gateway**: `https://ai.gateway.lovable.dev/v1/chat/completions`
+- **Chave**: `LOVABLE_API_KEY` (ja configurada automaticamente)
+
+### Tratamento de Erros:
+
+- Rate limit (429): toast informando para tentar novamente
+- Creditos insuficientes (402): toast informando para adicionar creditos
+- Falha na IA: documento marcado como `error` com mensagem no campo `extracted_data`
+- Arquivo invalido: validacao no frontend antes do upload
 
