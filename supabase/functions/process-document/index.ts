@@ -146,8 +146,18 @@ Analise o documento com atencao especial a:
     const result = JSON.parse(toolCall.function.arguments);
     const { extracted_data, risk_score, alerts } = result;
 
-    // Match alerts to rules
+    // Match alerts to rules by category (alert_type matches rule category)
     const ruleMap = new Map((rules || []).map((r: any) => [r.category, r]));
+    // Also map legacy categories
+    const legacyMap: Record<string, string> = {
+      financeiro: "sobrepreco",
+      competitividade: "direcionamento",
+      temporal: "prazo_exiguo",
+    };
+    for (const [legacy, modern] of Object.entries(legacyMap)) {
+      const rule = ruleMap.get(legacy);
+      if (rule && !ruleMap.has(modern)) ruleMap.set(modern, rule);
+    }
 
     // Update document with extracted data
     await supabase.from("procurement_documents").update({

@@ -12,9 +12,12 @@ export function ThemeToggle() {
       className="w-full justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground"
       onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
     >
-      <Sun className="mr-2 h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-      <Moon className="absolute mr-2 h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-      <span className="ml-6">{theme === "dark" ? "Modo Claro" : "Modo Escuro"}</span>
+      {theme === "dark" ? (
+        <Sun className="mr-2 h-4 w-4" />
+      ) : (
+        <Moon className="mr-2 h-4 w-4" />
+      )}
+      <span>{theme === "dark" ? "Modo Claro" : "Modo Escuro"}</span>
     </Button>
   );
 }
