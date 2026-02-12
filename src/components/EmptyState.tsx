@@ -1,15 +1,16 @@
+import * as React from "react";
 import { LucideIcon } from "lucide-react";
 
-interface EmptyStateProps {
+interface EmptyStateProps extends React.HTMLAttributes<HTMLDivElement> {
   icon: LucideIcon;
   title: string;
   description: string;
   children?: React.ReactNode;
 }
 
-export function EmptyState({ icon: Icon, title, description, children }: EmptyStateProps) {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-center">
+const EmptyState = React.forwardRef<HTMLDivElement, EmptyStateProps>(
+  ({ icon: Icon, title, description, children, ...props }, ref) => (
+    <div ref={ref} className="flex flex-col items-center justify-center py-16 text-center" {...props}>
       <div className="rounded-full bg-muted p-4 mb-4">
         <Icon className="h-8 w-8 text-muted-foreground" />
       </div>
@@ -17,5 +18,8 @@ export function EmptyState({ icon: Icon, title, description, children }: EmptySt
       <p className="text-sm text-muted-foreground max-w-sm mb-4">{description}</p>
       {children}
     </div>
-  );
-}
+  )
+);
+EmptyState.displayName = "EmptyState";
+
+export { EmptyState };

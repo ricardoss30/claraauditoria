@@ -17,7 +17,7 @@ export default function DocumentDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { upload, step } = useDocumentUpload();
+  const { reprocess, step } = useDocumentUpload();
 
   const { data: doc, isLoading } = useQuery({
     queryKey: ["document", id],
@@ -40,11 +40,11 @@ export default function DocumentDetail() {
   });
 
   const handleReprocess = async () => {
-    if (!doc?.raw_content) {
+    if (!doc?.raw_content || !id) {
       toast({ title: "Sem conteúdo", description: "Documento não possui conteúdo para reprocessar.", variant: "destructive" });
       return;
     }
-    await upload({ text: doc.raw_content, title: doc.title });
+    await reprocess(id, doc.raw_content);
   };
 
   const handleDownload = async () => {

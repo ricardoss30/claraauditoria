@@ -36,6 +36,7 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <ExportButton
             label="Exportar Resumo"
+            disabled={documentsProcessed.isLoading || alertsPending.isLoading}
             onClick={() => exportToCSV([{
               documentos_analisados: documentsProcessed.data ?? 0,
               alertas_pendentes: alertsPending.data ?? 0,

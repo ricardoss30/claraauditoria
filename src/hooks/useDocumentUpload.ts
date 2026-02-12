@@ -96,5 +96,47 @@ export function useDocumentUpload() {
     }
   };
 
-  return { upload, step, error, reset };
+  const reprocess = async (documentId: string, content: string) => {
+    try {
+      setError(null);
+      setStep("extracting");
+
+      await supabase.from("procurement_documents").update({ status: "pending" }).eq("id", documentId);
+
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke("process-document", {
+        body: { document_id: documentId, content },
+      });
+
+      if (fnErr) {
+        const errMsg = fnErr.message || "";
+        if (errMsg.includes("429") || errMsg.includes("Rate limit")) {
+          toast({ title: "Limite de requisições", description: "Aguarde alguns minutos e tente novamente.", variant: "destructive" });
+        } else if (errMsg.includes("402") || errMsg.includes("Payment")) {
+          toast({ title: "Créditos insuficientes", description: "Adicione créditos ao workspace para continuar.", variant: "destructive" });
+        }
+        throw new Error(errMsg || "Erro no processamento");
+      }
+
+      setStep("analyzing");
+      await new Promise((r) => setTimeout(r, 500));
+      setStep("done");
+
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["document", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["document-alerts", documentId] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+
+      toast({ title: "Documento reprocessado", description: `${fnData?.alerts_count || 0} alerta(s) gerado(s). Score de risco: ${fnData?.risk_score ?? "N/A"}` });
+      return documentId;
+    } catch (e: any) {
+      console.error("Reprocess error:", e);
+      setStep("error");
+      setError(e.message || "Erro desconhecido");
+      toast({ title: "Erro no reprocessamento", description: e.message, variant: "destructive" });
+      return null;
+    }
+  };
+
+  return { upload, reprocess, step, error, reset };
 }
