@@ -35,6 +35,15 @@ export function useRules() {
         ? await supabase.from("risk_rules").update({ ...rest, parameters: safeParams } as any).eq("id", id)
         : await supabase.from("risk_rules").insert({ ...rest, parameters: safeParams } as any);
       if (error) throw error;
+
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from("audit_logs").insert({
+        action: id ? "update" : "create",
+        resource_type: "rule",
+        resource_id: id || undefined,
+        user_id: user?.id,
+        details: { name: rule.name },
+      });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules"] }),
   });
@@ -43,6 +52,14 @@ export function useRules() {
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("risk_rules").delete().eq("id", id);
       if (error) throw error;
+
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from("audit_logs").insert({
+        action: "delete",
+        resource_type: "rule",
+        resource_id: id,
+        user_id: user?.id,
+      });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules"] }),
   });

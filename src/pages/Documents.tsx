@@ -11,6 +11,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { RiskScoreBadge } from "@/components/RiskScoreBadge";
 import { EmptyState } from "@/components/EmptyState";
 import { FileText, Search, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ExportButton } from "@/components/ExportButton";
+import { exportToCSV } from "@/hooks/useExport";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DocumentUploadDialog } from "@/components/DocumentUploadDialog";
 
@@ -25,7 +27,24 @@ export default function Documents() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold">Documentos</h1>
-          <Button onClick={() => setUploadOpen(true)}><Plus className="h-4 w-4 mr-2" /> Novo Documento</Button>
+          <div className="flex gap-2">
+            <ExportButton
+              disabled={!data?.data.length}
+              onClick={() => data?.data && exportToCSV(
+                data.data.map((d) => ({
+                  título: d.title,
+                  órgão: d.agency || "",
+                  modalidade: d.modality || "",
+                  valor_estimado: d.estimated_value ?? "",
+                  status: d.status,
+                  risco: d.risk_score ?? "",
+                  publicação: d.published_at ? new Date(d.published_at).toLocaleDateString("pt-BR") : "",
+                })),
+                "documentos"
+              )}
+            />
+            <Button onClick={() => setUploadOpen(true)}><Plus className="h-4 w-4 mr-2" /> Novo Documento</Button>
+          </div>
         </div>
         <DocumentUploadDialog open={uploadOpen} onOpenChange={setUploadOpen} />
 
