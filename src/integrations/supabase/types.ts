@@ -14,16 +14,367 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      audit_logs: {
+        Row: {
+          action: string
+          created_at: string
+          details: Json | null
+          id: string
+          ip_address: string | null
+          resource_id: string | null
+          resource_type: string
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          details?: Json | null
+          id?: string
+          ip_address?: string | null
+          resource_id?: string | null
+          resource_type: string
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          details?: Json | null
+          id?: string
+          ip_address?: string | null
+          resource_id?: string | null
+          resource_type?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      data_sources: {
+        Row: {
+          base_url: string | null
+          config: Json | null
+          created_at: string
+          created_by: string | null
+          id: string
+          is_active: boolean
+          last_sync_at: string | null
+          name: string
+          source_type: string
+          updated_at: string
+        }
+        Insert: {
+          base_url?: string | null
+          config?: Json | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          last_sync_at?: string | null
+          name: string
+          source_type?: string
+          updated_at?: string
+        }
+        Update: {
+          base_url?: string | null
+          config?: Json | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          is_active?: boolean
+          last_sync_at?: string | null
+          name?: string
+          source_type?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      procurement_documents: {
+        Row: {
+          agency: string | null
+          created_at: string
+          created_by: string | null
+          deadline_at: string | null
+          description: string | null
+          estimated_value: number | null
+          external_id: string | null
+          extracted_data: Json | null
+          file_url: string | null
+          id: string
+          modality: string | null
+          published_at: string | null
+          raw_content: string | null
+          risk_score: number | null
+          source_id: string | null
+          status: Database["public"]["Enums"]["processing_status"]
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          agency?: string | null
+          created_at?: string
+          created_by?: string | null
+          deadline_at?: string | null
+          description?: string | null
+          estimated_value?: number | null
+          external_id?: string | null
+          extracted_data?: Json | null
+          file_url?: string | null
+          id?: string
+          modality?: string | null
+          published_at?: string | null
+          raw_content?: string | null
+          risk_score?: number | null
+          source_id?: string | null
+          status?: Database["public"]["Enums"]["processing_status"]
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          agency?: string | null
+          created_at?: string
+          created_by?: string | null
+          deadline_at?: string | null
+          description?: string | null
+          estimated_value?: number | null
+          external_id?: string | null
+          extracted_data?: Json | null
+          file_url?: string | null
+          id?: string
+          modality?: string | null
+          published_at?: string | null
+          raw_content?: string | null
+          risk_score?: number | null
+          source_id?: string | null
+          status?: Database["public"]["Enums"]["processing_status"]
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "procurement_documents_source_id_fkey"
+            columns: ["source_id"]
+            isOneToOne: false
+            referencedRelation: "data_sources"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          full_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          full_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      risk_alerts: {
+        Row: {
+          alert_type: string
+          created_at: string
+          description: string | null
+          document_id: string
+          evidence: string | null
+          id: string
+          review_notes: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          rule_id: string | null
+          severity: number
+          status: Database["public"]["Enums"]["alert_status"]
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          alert_type: string
+          created_at?: string
+          description?: string | null
+          document_id: string
+          evidence?: string | null
+          id?: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          rule_id?: string | null
+          severity?: number
+          status?: Database["public"]["Enums"]["alert_status"]
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          alert_type?: string
+          created_at?: string
+          description?: string | null
+          document_id?: string
+          evidence?: string | null
+          id?: string
+          review_notes?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          rule_id?: string | null
+          severity?: number
+          status?: Database["public"]["Enums"]["alert_status"]
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "risk_alerts_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "procurement_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "risk_alerts_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "risk_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      risk_rules: {
+        Row: {
+          category: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
+          name: string
+          parameters: Json | null
+          rule_type: string
+          severity: number
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          parameters?: Json | null
+          rule_type?: string
+          severity?: number
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          parameters?: Json | null
+          rule_type?: string
+          severity?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      text_analysis_cache: {
+        Row: {
+          analysis_type: string
+          created_at: string
+          document_id: string
+          id: string
+          model_used: string | null
+          result: Json
+          tokens_used: number | null
+        }
+        Insert: {
+          analysis_type: string
+          created_at?: string
+          document_id: string
+          id?: string
+          model_used?: string | null
+          result?: Json
+          tokens_used?: number | null
+        }
+        Update: {
+          analysis_type?: string
+          created_at?: string
+          document_id?: string
+          id?: string
+          model_used?: string | null
+          result?: Json
+          tokens_used?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "text_analysis_cache_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "procurement_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_any_role: {
+        Args: {
+          _roles: Database["public"]["Enums"]["app_role"][]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      alert_status: "pending" | "under_review" | "confirmed" | "dismissed"
+      app_role: "admin" | "gestor" | "auditor"
+      processing_status: "pending" | "processing" | "processed" | "error"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +501,10 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      alert_status: ["pending", "under_review", "confirmed", "dismissed"],
+      app_role: ["admin", "gestor", "auditor"],
+      processing_status: ["pending", "processing", "processed", "error"],
+    },
   },
 } as const

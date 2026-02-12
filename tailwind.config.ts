@@ -57,6 +57,12 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        clara: {
+          primary: "hsl(var(--clara-primary))",
+          success: "hsl(var(--clara-success))",
+          warning: "hsl(var(--clara-warning))",
+          danger: "hsl(var(--clara-danger))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
