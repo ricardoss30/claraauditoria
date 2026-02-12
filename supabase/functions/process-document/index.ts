@@ -177,7 +177,38 @@ Analise o documento com atencao especial a:
           status: "pending",
         };
       });
-      await supabase.from("risk_alerts").insert(alertRows);
+      const { data: insertedAlerts } = await supabase.from("risk_alerts").insert(alertRows).select("id, title, severity, evidence");
+
+      // Send notifications for high-severity alerts
+      const criticalAlerts = (insertedAlerts || []).filter((a: any) => a.severity >= 4);
+      for (const alert of criticalAlerts) {
+        try {
+          await fetch(`${supabaseUrl}/functions/v1/send-notification`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${serviceRoleKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              alert_id: alert.id,
+              alert_title: alert.title,
+              document_title: extracted_data.title,
+              severity: alert.severity,
+              evidence: alert.evidence,
+            }),
+          });
+        } catch (e) {
+          console.error("Failed to send notification:", e);
+        }
+      }
+
+      // Log audit for document processing
+      await supabase.from("audit_logs").insert({
+        action: "upload",
+        resource_type: "document",
+        resource_id: document_id,
+        details: { risk_score, alerts_count: alerts.length },
+      });
     }
 
     // Save to cache

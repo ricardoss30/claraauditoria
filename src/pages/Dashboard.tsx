@@ -2,6 +2,8 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { FileText, AlertTriangle, Shield, TrendingUp } from "lucide-react";
+import { ExportButton } from "@/components/ExportButton";
+import { exportToCSV } from "@/hooks/useExport";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SeverityIndicator } from "@/components/SeverityIndicator";
@@ -30,7 +32,18 @@ export default function Dashboard() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Dashboard</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold">Dashboard</h1>
+          <ExportButton
+            label="Exportar Resumo"
+            onClick={() => exportToCSV([{
+              documentos_analisados: documentsProcessed.data ?? 0,
+              alertas_pendentes: alertsPending.data ?? 0,
+              regras_ativas: activeRules.data ?? 0,
+              taxa_precisao: accuracy.data != null ? `${accuracy.data}%` : "—",
+            }], "resumo-dashboard")}
+          />
+        </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatCard title="Documentos Analisados" icon={FileText} value={documentsProcessed.data ?? 0} loading={documentsProcessed.isLoading} />

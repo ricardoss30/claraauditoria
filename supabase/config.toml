@@ -2,3 +2,6 @@ project_id = "ktqrkijazzpafmfbkohe"
 
 [functions.process-document]
 verify_jwt = false
+
+[functions.send-notification]
+verify_jwt = false

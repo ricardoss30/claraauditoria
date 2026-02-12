@@ -34,6 +34,16 @@ export function useAlerts() {
         .update({ status, review_notes, reviewed_at: new Date().toISOString() })
         .eq("id", id);
       if (error) throw error;
+
+      // Log audit
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from("audit_logs").insert({
+        action: "status_change",
+        resource_type: "alert",
+        resource_id: id,
+        user_id: user?.id,
+        details: { new_status: status },
+      });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alerts"] }),
   });

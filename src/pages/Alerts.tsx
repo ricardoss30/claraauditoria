@@ -11,6 +11,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { SeverityIndicator } from "@/components/SeverityIndicator";
 import { EmptyState } from "@/components/EmptyState";
 import { AlertTriangle, CheckCircle, XCircle, Eye } from "lucide-react";
+import { ExportButton } from "@/components/ExportButton";
+import { exportToCSV } from "@/hooks/useExport";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import type { Database } from "@/integrations/supabase/types";
@@ -32,7 +34,25 @@ export default function Alerts() {
   return (
     <AppLayout>
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Alertas de Risco</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold">Alertas de Risco</h1>
+          <ExportButton
+            disabled={!data?.length}
+            onClick={() => data && exportToCSV(
+              data.map((a: any) => ({
+                título: a.title,
+                tipo: a.alert_type,
+                documento: a.procurement_documents?.title || "",
+                severidade: a.severity,
+                status: a.status,
+                descrição: a.description || "",
+                evidência: a.evidence || "",
+                data: new Date(a.created_at).toLocaleDateString("pt-BR"),
+              })),
+              "alertas"
+            )}
+          />
+        </div>
 
         <div className="flex gap-3">
           <Select value={statusFilter} onValueChange={setStatusFilter}>

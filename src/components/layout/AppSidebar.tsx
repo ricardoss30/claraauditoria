@@ -1,5 +1,6 @@
-import { LayoutDashboard, FileText, AlertTriangle, Shield, Database, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, FileText, AlertTriangle, Shield, Database, Settings, LogOut, ClipboardList } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Sidebar,
@@ -23,7 +24,7 @@ const mainItems = [
 ];
 
 export function AppSidebar() {
-  const { user, hasRole, signOut } = useAuth();
+  const { user, hasRole, hasAnyRole, signOut } = useAuth();
 
   return (
     <Sidebar>
@@ -52,6 +53,20 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              {hasAnyRole(["admin", "auditor"]) && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild>
+                    <NavLink
+                      to="/audit"
+                      className="flex items-center gap-2 rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent"
+                      activeClassName="bg-sidebar-accent text-sidebar-primary font-medium"
+                    >
+                      <ClipboardList className="h-4 w-4" />
+                      <span>Auditoria</span>
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               {hasRole("admin") && (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
@@ -75,6 +90,7 @@ export function AppSidebar() {
         <div className="mb-2 truncate text-xs text-sidebar-foreground/70">
           {user?.email}
         </div>
+        <ThemeToggle />
         <Button variant="ghost" size="sm" className="w-full justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground" onClick={signOut}>
           <LogOut className="mr-2 h-4 w-4" />
           Sair
