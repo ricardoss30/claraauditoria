@@ -1,131 +1,111 @@
 
 
-# Fase 1: Estrutura Base e Autenticacao - CLARA
+# Fase 2: Dashboard com KPIs e Listagem de Documentos
 
 ## Resumo
 
-Configurar toda a base do sistema CLARA no Supabase: tabelas do banco de dados, sistema de autenticacao com roles (auditor, gestor, admin), politicas de seguranca (RLS), e o layout base da aplicacao com sidebar e rotas principais.
+Com a Fase 1 concluida (banco de dados, autenticacao e layout), esta fase implementa o Dashboard com dados reais do Supabase e a pagina de Documentos com listagem, filtros e busca.
 
 ---
 
-## 1. Banco de Dados - Tabelas e Tipos
+## 1. Dashboard - KPIs Dinamicos
 
-Criar todas as tabelas principais do sistema com uma migracao SQL:
+Substituir os valores estaticos do Dashboard por consultas reais ao Supabase:
 
-**Tipo enum para roles:**
-- `app_role`: admin, gestor, auditor
+- **Documentos Analisados**: contagem de `procurement_documents` com status `processed`
+- **Alertas Pendentes**: contagem de `risk_alerts` com status `pending`
+- **Regras Ativas**: contagem de `risk_rules` com `is_active = true`
+- **Taxa de Precisao**: percentual de alertas confirmados vs total revisados
 
-**Tipo enum para status de documentos:**
-- `processing_status`: pending, processing, processed, error
+Usar `@tanstack/react-query` para todas as consultas com cache automatico.
 
-**Tipo enum para status de alertas:**
-- `alert_status`: pending, under_review, confirmed, dismissed
+## 2. Dashboard - Graficos com Recharts
 
-**Tabelas a criar:**
+Adicionar secao de graficos abaixo dos KPIs:
 
-| Tabela | Descricao |
-|---|---|
-| `profiles` | Dados do usuario (nome, avatar) vinculados ao auth.users |
-| `user_roles` | Roles dos usuarios (admin, gestor, auditor) - tabela separada por seguranca |
-| `data_sources` | Fontes de dados (Compras.gov.br, etc) |
-| `procurement_documents` | Documentos de licitacao coletados |
-| `risk_rules` | Regras parametrizadas de analise de risco |
-| `risk_alerts` | Alertas gerados pelo sistema |
-| `text_analysis_cache` | Cache de analises de IA |
-| `audit_logs` | Log de todas as acoes no sistema |
+- **Grafico de barras**: alertas por categoria (sobrepreco, direcionamento, prazo exiguo)
+- **Grafico de linha**: evolucao de documentos processados ao longo do tempo (ultimos 30 dias)
+- **Tabela de alertas recentes**: ultimos 5 alertas com titulo, severidade, status e data
 
-**Funcoes de seguranca:**
-- `has_role(user_id, role)` - funcao SECURITY DEFINER para verificar roles sem recursao RLS
-- `handle_new_user()` - trigger que cria profile automaticamente no signup
+## 3. Pagina de Documentos
 
----
+Implementar a pagina completa de listagem de documentos:
 
-## 2. Politicas de Seguranca (RLS)
+- **Tabela paginada** com colunas: titulo, orgao, modalidade, valor estimado, status, data de publicacao, score de risco
+- **Filtros**: por status (pending, processing, processed, error), por modalidade
+- **Busca**: campo de texto para buscar por titulo ou orgao
+- **Badge de status** com cores diferenciadas por estado
+- **Badge de risco** com cores por faixa de score (0-30 verde, 31-60 amarelo, 61-100 vermelho)
+- **Estado vazio**: mensagem amigavel quando nao ha documentos
 
-Todas as tabelas terao RLS habilitado com as seguintes regras:
+## 4. Pagina de Alertas
 
-- **profiles**: usuarios autenticados podem ler todos os perfis; cada usuario so edita o proprio
-- **user_roles**: somente admins podem gerenciar roles; usuarios podem ver suas proprias roles
-- **data_sources**: leitura para todos autenticados; escrita apenas para admin/gestor
-- **procurement_documents**: leitura para todos autenticados; escrita para admin/gestor
-- **risk_rules**: leitura para todos autenticados; escrita para admin
-- **risk_alerts**: leitura para todos autenticados; atualizacao para auditor/gestor/admin
-- **text_analysis_cache**: leitura para todos autenticados; escrita via service role (edge functions)
-- **audit_logs**: leitura para admin; insercao para todos autenticados
+Implementar listagem de alertas com workflow de revisao:
 
----
+- **Tabela** com colunas: titulo, tipo, severidade (1-5 estrelas), documento vinculado, status, data
+- **Filtros**: por status (pending, under_review, confirmed, dismissed), por severidade, por tipo
+- **Acoes**: botoes para alterar status (confirmar, descartar, solicitar revisao)
+- **Dialog de revisao**: ao clicar em um alerta, abrir dialog com detalhes, evidencia e campo para notas de revisao
+- **Badges de severidade**: cores graduais de verde (1) a vermelho (5)
 
-## 3. Autenticacao
+## 5. Pagina de Regras
 
-- Login/Signup por email e senha usando Supabase Auth
-- Pagina `/auth` com formulario de login e cadastro
-- Componente `AuthProvider` com contexto React para sessao do usuario
-- Hook `useAuth` para acessar usuario logado e suas roles
-- Rota protegida (`ProtectedRoute`) que redireciona para `/auth` se nao autenticado
-- Primeiro usuario cadastrado recebe role `admin` automaticamente via trigger
+Implementar CRUD de regras de risco:
 
----
+- **Listagem** em cards com nome, descricao, categoria, tipo, severidade, status ativo/inativo
+- **Switch ativar/desativar**: toggle inline para cada regra
+- **Dialog de criacao/edicao**: formulario com campos nome, descricao, categoria, tipo de regra (keyword, numerico, padrao, IA), severidade (slider 1-5), parametros (JSON)
+- **Botao de excluir**: com confirmacao via AlertDialog
+- **Apenas admins** podem criar/editar/excluir regras (validacao no frontend + RLS no backend)
 
-## 4. Layout e Navegacao
+## 6. Pagina de Fontes de Dados
 
-- **Sidebar** com navegacao principal usando componentes Shadcn/ui:
-  - Dashboard (icone LayoutDashboard)
-  - Documentos (icone FileText)
-  - Alertas (icone AlertTriangle)
-  - Regras (icone Shield)
-  - Fontes de Dados (icone Database)
-  - Configuracoes (icone Settings) - visivel apenas para admin
-- **Header** com nome do usuario logado e botao de logout
-- Tema de cores: azul/roxo para IA, verde para sucesso, laranja/vermelho para alertas
+Implementar gestao de fontes:
 
-**Rotas:**
+- **Listagem** em cards com nome, tipo, URL base, status ativo/inativo, ultima sincronizacao
+- **Dialog de criacao/edicao**: formulario com nome, tipo (api/scraping), URL base, configuracoes
+- **Switch ativar/desativar**: toggle inline
+- **Indicador de ultima sincronizacao**: data/hora formatada ou "Nunca sincronizado"
+- **Apenas admin/gestor** podem gerenciar fontes
 
-| Rota | Pagina |
-|---|---|
-| `/auth` | Login/Cadastro |
-| `/` | Dashboard (protegida) |
-| `/documents` | Lista de Documentos (protegida) |
-| `/alerts` | Gerenciador de Alertas (protegida) |
-| `/rules` | Configuracao de Regras (protegida) |
-| `/sources` | Fontes de Dados (protegida) |
-| `/settings` | Configuracoes (protegida, admin) |
+## 7. Pagina de Configuracoes (Admin)
 
----
+Implementar gestao de usuarios e roles:
 
-## 5. Regras Iniciais Pre-configuradas
-
-Inserir via seed 3 regras de risco iniciais:
-1. **Sobrepre\u00e7o** - detecta valores acima de referencia de mercado
-2. **Direcionamento de marca** - detecta mencoes a marcas especificas
-3. **Prazo exiguo** - detecta prazos de publicacao menores que o legal
+- **Lista de usuarios**: tabela com email, nome, roles, data de cadastro
+- **Gerenciar roles**: botoes para adicionar/remover roles de usuarios
+- **Apenas admins** tem acesso a esta pagina (validacao no frontend + RLS)
 
 ---
 
 ## Detalhes Tecnicos
 
-**Arquivos a criar/modificar:**
+**Hooks de dados a criar (usando @tanstack/react-query):**
 
-1. **Migracao SQL** - via ferramenta de migracao do Supabase:
-   - Criar enums, tabelas, funcoes, triggers, RLS policies, seed de regras
+| Arquivo | Descricao |
+|---|---|
+| `src/hooks/useDashboardStats.ts` | Consultas agregadas para KPIs |
+| `src/hooks/useDocuments.ts` | CRUD e listagem de documentos |
+| `src/hooks/useAlerts.ts` | CRUD e listagem de alertas |
+| `src/hooks/useRules.ts` | CRUD e listagem de regras |
+| `src/hooks/useSources.ts` | CRUD e listagem de fontes |
+| `src/hooks/useUsers.ts` | Listagem de usuarios e gestao de roles (admin) |
 
-2. **src/contexts/AuthContext.tsx** - Provider de autenticacao
-3. **src/hooks/useAuth.ts** - Hook para acessar auth e roles
-4. **src/components/ProtectedRoute.tsx** - Wrapper de rota protegida
-5. **src/pages/Auth.tsx** - Pagina de login/cadastro
-6. **src/components/layout/AppLayout.tsx** - Layout com sidebar + header
-7. **src/components/layout/AppSidebar.tsx** - Sidebar de navegacao
-8. **src/pages/Dashboard.tsx** - Pagina placeholder do dashboard
-9. **src/pages/Documents.tsx** - Pagina placeholder de documentos
-10. **src/pages/Alerts.tsx** - Pagina placeholder de alertas
-11. **src/pages/Rules.tsx** - Pagina placeholder de regras
-12. **src/pages/Sources.tsx** - Pagina placeholder de fontes
-13. **src/pages/Settings.tsx** - Pagina placeholder de configuracoes
-14. **src/App.tsx** - Atualizar com novas rotas e AuthProvider
-15. **src/index.css** - Adicionar variaveis de cor do tema CLARA
+**Paginas a modificar:**
 
-**Variaveis de tema CSS adicionais:**
-- `--clara-primary`: azul/roxo (IA)
-- `--clara-success`: verde
-- `--clara-warning`: laranja
-- `--clara-danger`: vermelho
+1. `src/pages/Dashboard.tsx` - KPIs dinamicos + graficos Recharts + tabela de alertas recentes
+2. `src/pages/Documents.tsx` - Tabela paginada com filtros e busca
+3. `src/pages/Alerts.tsx` - Listagem com workflow de revisao
+4. `src/pages/Rules.tsx` - CRUD completo de regras
+5. `src/pages/Sources.tsx` - Gestao de fontes de dados
+6. `src/pages/Settings.tsx` - Gestao de usuarios e roles
+
+**Componentes auxiliares a criar:**
+
+- `src/components/StatusBadge.tsx` - Badge reutilizavel para status de documentos e alertas
+- `src/components/RiskScoreBadge.tsx` - Badge com cor graduada por score de risco
+- `src/components/SeverityIndicator.tsx` - Indicador visual de severidade (1-5)
+- `src/components/EmptyState.tsx` - Componente para estados vazios
+
+**Biblioteca ja instalada:** `recharts` (para graficos)
 
