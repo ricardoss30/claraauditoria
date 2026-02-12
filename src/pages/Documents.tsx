@@ -1,6 +1,8 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useDocuments } from "@/hooks/useDocuments";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -8,17 +10,24 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { RiskScoreBadge } from "@/components/RiskScoreBadge";
 import { EmptyState } from "@/components/EmptyState";
-import { FileText, Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { FileText, Search, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DocumentUploadDialog } from "@/components/DocumentUploadDialog";
 
 export default function Documents() {
   const { data, isLoading, search, setSearch, statusFilter, setStatusFilter, page, setPage, pageSize } = useDocuments();
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const navigate = useNavigate();
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
 
   return (
     <AppLayout>
       <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Documentos</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-3xl font-bold">Documentos</h1>
+          <Button onClick={() => setUploadOpen(true)}><Plus className="h-4 w-4 mr-2" /> Novo Documento</Button>
+        </div>
+        <DocumentUploadDialog open={uploadOpen} onOpenChange={setUploadOpen} />
 
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
@@ -68,7 +77,7 @@ export default function Documents() {
                   </TableHeader>
                   <TableBody>
                     {data.data.map((doc) => (
-                      <TableRow key={doc.id}>
+                      <TableRow key={doc.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/documents/${doc.id}`)}>
                         <TableCell className="font-medium max-w-[250px] truncate">{doc.title}</TableCell>
                         <TableCell>{doc.agency ?? "—"}</TableCell>
                         <TableCell>{doc.modality ?? "—"}</TableCell>

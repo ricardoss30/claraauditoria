@@ -12,6 +12,7 @@ import Alerts from "./pages/Alerts";
 import Rules from "./pages/Rules";
 import Sources from "./pages/Sources";
 import Settings from "./pages/Settings";
+import DocumentDetail from "./pages/DocumentDetail";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -27,6 +28,7 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
+            <Route path="/documents/:id" element={<ProtectedRoute><DocumentDetail /></ProtectedRoute>} />
             <Route path="/alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
             <Route path="/rules" element={<ProtectedRoute><Rules /></ProtectedRoute>} />
             <Route path="/sources" element={<ProtectedRoute><Sources /></ProtectedRoute>} />
