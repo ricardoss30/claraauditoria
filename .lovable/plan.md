@@ -1,77 +1,65 @@
 
 
-# Fase 3: Processamento de Documentos com Upload e Analise por IA
+# Fase 4: Relatorios, Auditoria e Notificacoes
 
 ## Resumo
 
-Implementar o fluxo completo de processamento de documentos de licitacao: upload de arquivos (PDF/texto), extracao automatica de dados estruturados via Lovable AI (Gemini), analise de risco baseada nas regras cadastradas, e geracao automatica de alertas.
+Com as fases 1-3 concluidas (autenticacao, dashboard, processamento de documentos com IA), esta fase foca em tornar o sistema mais completo para uso real: visualizacao de logs de auditoria, exportacao de relatorios, notificacoes por email para alertas criticos, e melhorias de UX.
 
 ---
 
-## 1. Storage - Bucket para Documentos
+## 1. Pagina de Auditoria (Audit Logs)
 
-Criar um bucket no Supabase Storage para armazenar os arquivos enviados:
+A tabela `audit_logs` ja existe no banco mas nao tem interface. Criar pagina `/audit`:
 
-- Bucket `documents` (privado) com politicas RLS para usuarios autenticados
-- Upload permitido para admin/gestor
-- Leitura permitida para todos autenticados
-
-**Migracao SQL** para criar bucket e politicas de acesso.
-
----
-
-## 2. Edge Function: `process-document`
-
-Criar uma edge function que recebe o conteudo de um documento e usa Lovable AI para:
-
-1. **Extrair dados estruturados** usando tool calling (nao JSON livre):
-   - Titulo, orgao, modalidade, valor estimado, prazo, descricao
-2. **Analisar riscos** contra as regras ativas do banco:
-   - Sobrepeco: comparar valor com referencias
-   - Direcionamento de marca: detectar mencoes a marcas
-   - Prazo exiguo: verificar se prazo e inferior ao minimo legal
-3. **Calcular score de risco** (0-100)
-4. **Gerar alertas** automaticamente na tabela `risk_alerts`
-5. **Salvar cache** da analise em `text_analysis_cache`
-
-A edge function usara o modelo `google/gemini-3-flash-preview` via Lovable AI Gateway.
+- **Tabela paginada** com colunas: acao, tipo de recurso, usuario, data/hora, IP, detalhes
+- **Filtros**: por acao (create, update, delete), por tipo de recurso, por data
+- **Busca**: por usuario ou recurso
+- **Apenas admin/auditor** tem acesso
+- **Registro automatico**: criar trigger ou logica na edge function para registrar acoes importantes (upload de documento, mudanca de status de alerta, criacao/edicao de regra)
 
 ---
 
-## 3. Frontend - Dialog de Upload
+## 2. Exportacao de Relatorios (CSV/PDF)
 
-Adicionar botao "Novo Documento" na pagina de Documentos com dialog contendo:
+Adicionar botoes de exportacao nas paginas existentes:
 
-- **Upload de arquivo** (PDF ate 20MB) com arrastar-e-soltar
-- **Entrada manual de texto** (textarea) como alternativa ao upload
-- **Campos opcionais**: titulo, orgao, modalidade (preenchidos automaticamente pela IA)
-- **Barra de progresso** mostrando etapas: upload, extracao, analise, concluido
-- **Feedback em tempo real** com status de processamento
-
----
-
-## 4. Frontend - Pagina de Detalhes do Documento
-
-Criar rota `/documents/:id` com visualizacao completa:
-
-- **Dados extraidos**: titulo, orgao, modalidade, valor, prazo, descricao
-- **Score de risco** com indicador visual
-- **Lista de alertas** vinculados ao documento
-- **Conteudo original** do documento (texto bruto)
-- **Link para download** do arquivo original
-- **Botao "Reprocessar"** para refazer a analise
+- **Documentos**: exportar lista filtrada em CSV
+- **Alertas**: exportar alertas com detalhes em CSV
+- **Dashboard**: botao para gerar relatorio resumido (quantidade de documentos, alertas por categoria, score medio de risco)
+- Usar geracao de CSV no frontend (sem dependencia externa)
 
 ---
 
-## 5. Hook `useDocumentUpload`
+## 3. Notificacoes por Email
 
-Novo hook para gerenciar o fluxo de upload:
+Criar edge function `send-notification` para enviar emails quando:
 
-- Upload do arquivo para Supabase Storage
-- Criacao do registro em `procurement_documents` com status `pending`
-- Chamada a edge function `process-document`
-- Atualizacao do status em tempo real (pending -> processing -> processed/error)
-- Invalidacao do cache do react-query apos conclusao
+- Um alerta de **severidade 4 ou 5** e gerado automaticamente
+- Um documento muda para status **error**
+- Usar Supabase integrado (ou Resend se configurado) para envio
+- Configuracao de preferencias de notificacao na pagina de Settings
+
+---
+
+## 4. Melhorias de UX
+
+- **Dark mode**: toggle na sidebar usando `next-themes` (ja instalado)
+- **Responsividade mobile**: ajustar tabelas e layout para telas pequenas
+- **Breadcrumbs**: navegacao contextual nas paginas de detalhe
+- **Loading states aprimorados**: skeleton loaders mais fieis ao layout final
+- **Confirmacao de acoes destrutivas**: AlertDialog antes de excluir regras, fontes ou descartar alertas
+
+---
+
+## 5. Edge Function para Registrar Auditoria
+
+Criar edge function `log-audit` ou adicionar logica na `process-document` existente para:
+
+- Registrar upload de documentos
+- Registrar mudancas de status de alertas
+- Registrar criacao/edicao/exclusao de regras
+- Incluir user_id e IP quando disponivel
 
 ---
 
@@ -81,42 +69,46 @@ Novo hook para gerenciar o fluxo de upload:
 
 | Arquivo | Descricao |
 |---|---|
-| `supabase/migrations/...` | Bucket de storage + politicas |
-| `supabase/functions/process-document/index.ts` | Edge function de processamento com IA |
-| `src/hooks/useDocumentUpload.ts` | Hook de upload e processamento |
-| `src/components/DocumentUploadDialog.tsx` | Dialog de upload com progresso |
-| `src/pages/DocumentDetail.tsx` | Pagina de detalhes do documento |
+| `src/pages/AuditLogs.tsx` | Pagina de logs de auditoria |
+| `src/hooks/useAuditLogs.ts` | Hook para consulta de audit_logs |
+| `src/hooks/useExport.ts` | Hook utilitario para exportacao CSV |
+| `src/components/ThemeToggle.tsx` | Toggle de dark/light mode |
+| `src/components/ExportButton.tsx` | Botao reutilizavel de exportacao |
+| `supabase/functions/send-notification/index.ts` | Edge function de notificacao |
 
 ### Arquivos a modificar:
 
 | Arquivo | Descricao |
 |---|---|
-| `src/pages/Documents.tsx` | Adicionar botao "Novo Documento" e link para detalhes |
-| `src/App.tsx` | Adicionar rota `/documents/:id` |
-| `supabase/config.toml` | Registrar a edge function |
+| `src/App.tsx` | Adicionar rota `/audit` |
+| `src/components/layout/AppSidebar.tsx` | Adicionar item "Auditoria" no menu |
+| `src/components/layout/AppLayout.tsx` | Integrar ThemeProvider e dark mode |
+| `src/pages/Dashboard.tsx` | Adicionar botao de exportar relatorio |
+| `src/pages/Documents.tsx` | Adicionar botao de exportar CSV |
+| `src/pages/Alerts.tsx` | Adicionar botao de exportar CSV |
+| `src/pages/Settings.tsx` | Adicionar secao de preferencias de notificacao |
+| `src/hooks/useAlerts.ts` | Adicionar logica de registro de auditoria nas mutacoes |
+| `src/hooks/useRules.ts` | Adicionar logica de registro de auditoria |
+| `supabase/config.toml` | Registrar edge function send-notification |
+| `src/index.css` | Ajustes para dark mode |
 
-### Fluxo de Processamento:
+### Fluxo de Notificacao:
 
-1. Usuario faz upload do arquivo ou cola texto
-2. Arquivo salvo no Storage, registro criado com status `pending`
-3. Edge function chamada com o conteudo do documento
-4. Lovable AI extrai dados estruturados (tool calling)
-5. Sistema compara dados contra regras ativas
-6. Score de risco calculado, alertas criados
-7. Documento atualizado para status `processed`
-8. Interface atualiza automaticamente via react-query
+1. Edge function `process-document` gera alerta com severidade >= 4
+2. Apos inserir alerta, chama `send-notification` com dados do alerta
+3. `send-notification` busca usuarios com role admin/gestor
+4. Envia email com detalhes do alerta (titulo, documento, severidade, evidencia)
 
-### Modelo de IA:
+### Exportacao CSV:
 
-- **Modelo**: `google/gemini-3-flash-preview` (default Lovable AI)
-- **Abordagem**: Tool calling para extracao estruturada (nao JSON livre)
-- **Gateway**: `https://ai.gateway.lovable.dev/v1/chat/completions`
-- **Chave**: `LOVABLE_API_KEY` (ja configurada automaticamente)
+- Funcao utilitaria que converte array de objetos em string CSV
+- Download via Blob URL no navegador
+- Sem dependencias externas necessarias
 
-### Tratamento de Erros:
+### Dark Mode:
 
-- Rate limit (429): toast informando para tentar novamente
-- Creditos insuficientes (402): toast informando para adicionar creditos
-- Falha na IA: documento marcado como `error` com mensagem no campo `extracted_data`
-- Arquivo invalido: validacao no frontend antes do upload
+- `next-themes` ja esta instalado
+- Wrapper `ThemeProvider` no App.tsx
+- Toggle na sidebar com icone sol/lua
+- Classes Tailwind `dark:` para ajustes pontuais
 
