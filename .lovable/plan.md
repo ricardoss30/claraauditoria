@@ -1,35 +1,43 @@
 
 
-## Corrigir Extração de Texto do PDF - unpdf retorna array
+## Adicionar Botao de Excluir Documentos
 
-### Problema
+### O que sera feito
 
-Os logs mostram o erro:
+Adicionar um botao de exclusao em cada linha da tabela de documentos, com dialogo de confirmacao antes de excluir. A exclusao remove o documento do banco de dados, seus alertas associados e o arquivo do Storage.
+
+### Alteracoes
+
+**`src/pages/Documents.tsx`**
+- Importar icone `Trash2` do lucide-react
+- Importar componentes `AlertDialog` para confirmacao
+- Adicionar coluna "Acoes" na tabela
+- Adicionar botao de lixeira em cada linha (com `e.stopPropagation()` para nao navegar ao clicar)
+- Adicionar estado para controlar o dialogo de confirmacao e o documento selecionado
+- Implementar funcao `handleDelete` que:
+  1. Deleta alertas associados (`risk_alerts` onde `document_id` = id)
+  2. Remove o arquivo do bucket `documents` no Storage (se `file_url` existir)
+  3. Deleta o documento da tabela `procurement_documents`
+  4. Invalida a query para atualizar a lista
+  5. Exibe toast de sucesso ou erro
+
+**`src/hooks/useDocuments.ts`**
+- Nenhuma alteracao necessaria (a invalidacao sera feita diretamente via `useQueryClient`)
+
+### Detalhes Tecnicos
+
+- A RLS ja permite que admins deletem documentos (`Admin can delete documents` - DELETE policy)
+- Alertas (`risk_alerts`) nao tem policy de DELETE, entao sera necessario criar uma migration para permitir que admins deletem alertas associados
+- A exclusao segue a ordem: alertas -> arquivo do storage -> documento (para evitar orfaos)
+- O dialogo de confirmacao usa `AlertDialog` do shadcn/ui ja disponivel no projeto
+
+### Migration SQL necessaria
+
+Adicionar policy de DELETE na tabela `risk_alerts` para admins:
+
+```sql
+CREATE POLICY "Admin can delete alerts"
+ON public.risk_alerts
+FOR DELETE
+USING (has_role(auth.uid(), 'admin'::app_role));
 ```
-TypeError: extractedText?.trim is not a function
-```
-
-A função `extractText` da biblioteca `unpdf` retorna `{ text: string[] }` (um array de strings, uma por página), mas o código trata como se fosse uma string única e tenta chamar `.trim()` nela.
-
-### Solução
-
-Alterar uma única linha na função `extractPdfText` em `supabase/functions/process-document/index.ts`:
-
-**Antes:**
-```typescript
-const { text: extractedText } = await extractText(new Uint8Array(arrayBuffer));
-const text = extractedText?.trim() || "";
-```
-
-**Depois:**
-```typescript
-const { text: extractedText } = await extractText(new Uint8Array(arrayBuffer));
-const text = Array.isArray(extractedText) ? extractedText.join("\n").trim() : (extractedText || "").toString().trim();
-```
-
-Isso junta todas as páginas com quebra de linha e depois aplica o `.trim()`.
-
-### Arquivo alterado
-
-- `supabase/functions/process-document/index.ts` (linhas 31-32 da função `extractPdfText`)
-
