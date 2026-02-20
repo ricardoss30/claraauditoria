@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import pdf from "npm:pdf-parse/lib/pdf-parse.js";
+import { extractText } from "npm:unpdf@0.12.1";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -29,10 +29,10 @@ async function extractPdfText(supabase: any, documentId: string): Promise<string
     throw new Error(`Erro ao baixar o PDF do Storage: ${downloadErr?.message || "arquivo não encontrado"}`);
   }
 
-  // Extract text using pdf-parse
+  // Extract text using unpdf
   const arrayBuffer = await fileData.arrayBuffer();
-  const pdfData = await pdf(arrayBuffer);
-  const text = pdfData.text?.trim();
+  const { text: extractedText } = await extractText(new Uint8Array(arrayBuffer));
+  const text = extractedText?.trim() || "";
 
   if (!text) {
     throw new Error("Não foi possível extrair texto do PDF. O arquivo pode estar escaneado ou protegido.");
