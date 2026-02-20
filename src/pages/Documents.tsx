@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useDocuments } from "@/hooks/useDocuments";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,14 +11,47 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { RiskScoreBadge } from "@/components/RiskScoreBadge";
 import { EmptyState } from "@/components/EmptyState";
-import { FileText, Search, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { FileText, Search, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DocumentUploadDialog } from "@/components/DocumentUploadDialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
 
 export default function Documents() {
   const { data, isLoading, search, setSearch, statusFilter, setStatusFilter, page, setPage, pageSize } = useDocuments();
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [deleteDoc, setDeleteDoc] = useState<{ id: string; title: string; file_url: string | null } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
+
+  const handleDelete = async () => {
+    if (!deleteDoc) return;
+    setDeleting(true);
+    try {
+      // 1. Delete associated alerts
+      await supabase.from("risk_alerts").delete().eq("document_id", deleteDoc.id);
+      // 2. Delete file from storage
+      if (deleteDoc.file_url) {
+        const path = deleteDoc.file_url.split("/storage/v1/object/public/documents/").pop();
+        if (path) await supabase.storage.from("documents").remove([decodeURIComponent(path)]);
+      }
+      // 3. Delete document
+      const { error } = await supabase.from("procurement_documents").delete().eq("id", deleteDoc.id);
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      toast({ title: "Documento excluído com sucesso" });
+    } catch (err: any) {
+      toast({ title: "Erro ao excluir documento", description: err.message, variant: "destructive" });
+    } finally {
+      setDeleting(false);
+      setDeleteDoc(null);
+    }
+  };
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
 
   return (
@@ -73,6 +107,7 @@ export default function Documents() {
                       <TableHead>Status</TableHead>
                       <TableHead>Publicação</TableHead>
                       <TableHead>Risco</TableHead>
+                      <TableHead className="w-[60px]">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -91,6 +126,16 @@ export default function Documents() {
                           {doc.published_at ? new Date(doc.published_at).toLocaleDateString("pt-BR") : "—"}
                         </TableCell>
                         <TableCell><RiskScoreBadge score={doc.risk_score} /></TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={(e) => { e.stopPropagation(); setDeleteDoc({ id: doc.id, title: doc.title, file_url: doc.file_url }); }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -113,6 +158,23 @@ export default function Documents() {
             )}
           </CardContent>
         </Card>
+
+        <AlertDialog open={!!deleteDoc} onOpenChange={(open) => !open && setDeleteDoc(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir documento</AlertDialogTitle>
+              <AlertDialogDescription>
+                Tem certeza que deseja excluir "{deleteDoc?.title}"? Esta ação não pode ser desfeita e removerá também os alertas associados.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDelete} disabled={deleting} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                {deleting ? "Excluindo..." : "Excluir"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </AppLayout>
   );
