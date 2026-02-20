@@ -32,7 +32,7 @@ async function extractPdfText(supabase: any, documentId: string): Promise<string
   // Extract text using unpdf
   const arrayBuffer = await fileData.arrayBuffer();
   const { text: extractedText } = await extractText(new Uint8Array(arrayBuffer));
-  const text = extractedText?.trim() || "";
+  const text = Array.isArray(extractedText) ? extractedText.join("\n").trim() : (extractedText || "").toString().trim();
 
   if (!text) {
     throw new Error("Não foi possível extrair texto do PDF. O arquivo pode estar escaneado ou protegido.");
