@@ -1,11 +1,46 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import pdf from "npm:pdf-parse/lib/pdf-parse.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+async function extractPdfText(supabase: any, documentId: string): Promise<string> {
+  // Fetch file_url from the document record
+  const { data: doc, error: docErr } = await supabase
+    .from("procurement_documents")
+    .select("file_url")
+    .eq("id", documentId)
+    .single();
+
+  if (docErr || !doc?.file_url) {
+    throw new Error("Não foi possível encontrar o arquivo do documento no banco de dados");
+  }
+
+  // Download the PDF from storage
+  const { data: fileData, error: downloadErr } = await supabase.storage
+    .from("documents")
+    .download(doc.file_url);
+
+  if (downloadErr || !fileData) {
+    throw new Error(`Erro ao baixar o PDF do Storage: ${downloadErr?.message || "arquivo não encontrado"}`);
+  }
+
+  // Extract text using pdf-parse
+  const arrayBuffer = await fileData.arrayBuffer();
+  const pdfData = await pdf(arrayBuffer);
+  const text = pdfData.text?.trim();
+
+  if (!text) {
+    throw new Error("Não foi possível extrair texto do PDF. O arquivo pode estar escaneado ou protegido.");
+  }
+
+  console.log(`PDF text extracted: ${text.length} characters from ${doc.file_url}`);
+  return text;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -18,11 +53,25 @@ serve(async (req) => {
   try {
     if (!lovableApiKey) throw new Error("LOVABLE_API_KEY not configured");
 
-    const { document_id, content } = await req.json();
-    if (!document_id || !content) throw new Error("document_id and content are required");
+    const { document_id, content: rawContent } = await req.json();
+    if (!document_id) throw new Error("document_id is required");
 
     // Update status to processing
     await supabase.from("procurement_documents").update({ status: "processing" }).eq("id", document_id);
+
+    // Determine actual content - extract from PDF if placeholder
+    let content = rawContent || "";
+    if (!content.trim() || content.trim().startsWith("[Arquivo PDF:")) {
+      console.log("Detected PDF placeholder, extracting text from storage...");
+      content = await extractPdfText(supabase, document_id);
+
+      // Update raw_content in database with the real extracted text
+      await supabase.from("procurement_documents")
+        .update({ raw_content: content })
+        .eq("id", document_id);
+    }
+
+    if (!content.trim()) throw new Error("Nenhum conteúdo disponível para análise");
 
     // Fetch active rules
     const { data: rules } = await supabase.from("risk_rules").select("*").eq("is_active", true);
@@ -146,9 +195,8 @@ Analise o documento com atencao especial a:
     const result = JSON.parse(toolCall.function.arguments);
     const { extracted_data, risk_score, alerts } = result;
 
-    // Match alerts to rules by category (alert_type matches rule category)
+    // Match alerts to rules
     const ruleMap = new Map((rules || []).map((r: any) => [r.category, r]));
-    // Also map legacy categories
     const legacyMap: Record<string, string> = {
       financeiro: "sobrepreco",
       competitividade: "direcionamento",
@@ -212,7 +260,7 @@ Analise o documento com atencao especial a:
         }
       }
 
-      // Log audit for document processing
+      // Log audit
       await supabase.from("audit_logs").insert({
         action: "upload",
         resource_type: "document",
@@ -236,7 +284,6 @@ Analise o documento com atencao especial a:
   } catch (e) {
     console.error("process-document error:", e);
 
-    // Mark document as error
     try {
       const { document_id } = await req.clone().json().catch(() => ({}));
       if (document_id) {
