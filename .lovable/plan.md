@@ -1,59 +1,96 @@
 
 
-## Gerenciar Prompt do Agente - Plano
+## Plano: Reestruturar Configuracoes com Submenus e Historico de Versoes
 
-### 1. Migration: Criar tabela `system_settings`
+### 1. Migration: Criar tabela `setting_versions`
 
-Tabela key-value para armazenar configurações do sistema, incluindo o prompt:
+Tabela para armazenar historico de versoes dos prompts com rollback:
 
 ```sql
-CREATE TABLE public.system_settings (
-  key TEXT PRIMARY KEY,
+CREATE TABLE public.setting_versions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  setting_key TEXT NOT NULL,
   value TEXT NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT now(),
-  updated_by UUID REFERENCES auth.users(id)
+  created_at TIMESTAMPTZ DEFAULT now(),
+  created_by UUID REFERENCES auth.users(id)
 );
 
-ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.setting_versions ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Admin can read settings" ON public.system_settings
-  FOR SELECT USING (has_role(auth.uid(), 'admin'::app_role));
-
-CREATE POLICY "Admin can upsert settings" ON public.system_settings
-  FOR ALL USING (has_role(auth.uid(), 'admin'::app_role));
-
--- Seed com o prompt atual
-INSERT INTO public.system_settings (key, value) VALUES ('agent_system_prompt', 
-'Voce e um especialista em analise de licitacoes publicas brasileiras...');
+CREATE POLICY "Admin can manage versions" ON public.setting_versions
+  FOR ALL USING (has_role(auth.uid(), 'admin'::app_role))
+  WITH CHECK (has_role(auth.uid(), 'admin'::app_role));
 ```
 
-### 2. Criar `src/hooks/useSystemSettings.ts`
+### 2. Reestruturar rotas em `src/App.tsx`
 
-Hook com `useQuery` para buscar o valor por key e `useMutation` para upsert, invalidando a query no sucesso.
+Adicionar sub-rotas para Settings:
+- `/settings/users` — Gestao de Usuarios
+- `/settings/prompts/agent` — Prompt do Agente de IA
+- `/settings/prompts/user` — Prompt do Usuario (User)
+- `/settings/prompts/structured-output` — Saida Estruturada
+- `/settings` redireciona para `/settings/users`
 
-### 3. Criar `src/components/AgentPromptManager.tsx`
+### 3. Atualizar `src/components/layout/AppSidebar.tsx`
 
-Componente com:
-- **Textarea** grande (min 400px altura) com o conteúdo do prompt
-- **Botão "Salvar"** — upsert na tabela `system_settings` com loading spinner
-- **Botão "Limpar Prompt"** — limpa o textarea (com confirmação)
-- **Botão "Exportar Prompt em PDF"** — reutiliza padrão `window.print` via iframe oculto
-- **Botão "Visualizar Atual"** — recarrega o valor do banco descartando edições locais
-- Toast de sucesso/erro via `sonner`
+Substituir o link unico "Configuracoes" por um grupo colapsavel (usando `Collapsible` do shadcn) visivel apenas para admins, com submenus:
 
-### 4. Atualizar `src/pages/Settings.tsx`
+```text
+Configuracoes (colapsavel)
+  ├── Gestao de Usuarios        → /settings/users
+  └── Gerenciamento de Prompt (colapsavel)
+        ├── Prompt do Agente     → /settings/prompts/agent
+        ├── Prompt do Usuario    → /settings/prompts/user
+        └── Saida Estruturada    → /settings/prompts/structured-output
+```
 
-Adicionar o componente `AgentPromptManager` como um novo `Card` abaixo da gestão de usuários.
+### 4. Refatorar `src/pages/Settings.tsx`
 
-### 5. Atualizar `supabase/functions/process-document/index.ts`
+Transformar em layout wrapper com `Outlet` do react-router que renderiza as sub-paginas. Manter a verificacao `hasRole("admin")`.
 
-Antes de montar as mensagens para a IA, buscar o prompt da tabela `system_settings` (key `agent_system_prompt`). Se existir, usar como system message; caso contrário, usar o prompt hardcoded como fallback.
+### 5. Criar paginas de sub-rotas
 
-### Arquivos alterados
-- Nova migration SQL (`system_settings`)
+- **`src/pages/settings/UsersManagement.tsx`** — Extrair o conteudo atual de gestao de usuarios do Settings.tsx
+- **`src/pages/settings/AgentPrompt.tsx`** — Wrapper simples que renderiza `<AgentPromptManager />`
+- **`src/pages/settings/UserPrompt.tsx`** — Novo componente, reutilizando o padrao do `AgentPromptManager` com key `user_system_prompt`
+- **`src/pages/settings/StructuredOutput.tsx`** — Novo componente, mesmo padrao com key `structured_output_prompt`
+
+### 6. Criar `src/components/PromptManager.tsx` (componente generico)
+
+Refatorar `AgentPromptManager` em componente reutilizavel que recebe props:
+- `settingKey: string` — chave no `system_settings`
+- `title: string` — titulo exibido
+- `placeholder: string`
+
+Incluir secao de **historico de versoes** no mesmo componente:
+- Ao salvar, inserir versao anterior na tabela `setting_versions`
+- Listar ultimas versoes com data/hora e botao "Restaurar"
+- Restaurar atualiza o textarea com o valor da versao selecionada (sem salvar automaticamente)
+
+### 7. Atualizar `src/hooks/useSystemSettings.ts`
+
+Adicionar ao hook:
+- `saveWithHistory`: mutation que primeiro insere a versao atual em `setting_versions`, depois faz upsert do novo valor
+- `useSettingVersions(key)`: query para buscar historico de versoes ordenado por `created_at DESC`
+- `restoreVersion`: funcao que retorna o valor de uma versao especifica
+
+### 8. Atualizar `supabase/functions/process-document/index.ts`
+
+Adicionar fetch dos novos prompts (`user_system_prompt` e `structured_output_prompt`) e usar na construcao das mensagens para a IA:
+- `user_system_prompt` → usado na mensagem `role: "user"` como prefixo
+- `structured_output_prompt` → usado na descricao da tool/function `process_document_analysis`
+
+### Arquivos alterados/criados
+- Nova migration SQL (`setting_versions`)
 - `src/integrations/supabase/types.ts` (auto-regenerado)
-- `src/hooks/useSystemSettings.ts` (novo)
-- `src/components/AgentPromptManager.tsx` (novo)
-- `src/pages/Settings.tsx`
+- `src/App.tsx`
+- `src/components/layout/AppSidebar.tsx`
+- `src/pages/Settings.tsx` (refatorado como layout)
+- `src/pages/settings/UsersManagement.tsx` (novo)
+- `src/pages/settings/AgentPrompt.tsx` (novo)
+- `src/pages/settings/UserPrompt.tsx` (novo)
+- `src/pages/settings/StructuredOutput.tsx` (novo)
+- `src/components/PromptManager.tsx` (novo, substitui AgentPromptManager)
+- `src/hooks/useSystemSettings.ts` (expandido com historico)
 - `supabase/functions/process-document/index.ts`
 
