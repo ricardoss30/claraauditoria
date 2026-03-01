@@ -215,6 +215,7 @@ export type Database = {
         Row: {
           alert_type: string
           created_at: string
+          criteria: string | null
           description: string | null
           document_id: string
           evidence: string | null
@@ -231,6 +232,7 @@ export type Database = {
         Insert: {
           alert_type: string
           created_at?: string
+          criteria?: string | null
           description?: string | null
           document_id: string
           evidence?: string | null
@@ -247,6 +249,7 @@ export type Database = {
         Update: {
           alert_type?: string
           created_at?: string
+          criteria?: string | null
           description?: string | null
           document_id?: string
           evidence?: string | null

@@ -1,0 +1,1 @@
+ALTER TABLE risk_alerts ADD COLUMN criteria text;
