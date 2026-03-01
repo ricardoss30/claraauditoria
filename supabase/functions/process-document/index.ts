@@ -381,6 +381,9 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}`,
       status: "processed",
     }).eq("id", document_id);
 
+    // Delete existing alerts for this document before inserting new ones
+    await supabase.from("risk_alerts").delete().eq("document_id", document_id);
+
     // Create alerts
     if (alerts && alerts.length > 0) {
       const alertRows = alerts.map((a: any) => {
