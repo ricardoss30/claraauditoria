@@ -9,7 +9,6 @@ const corsHeaders = {
 };
 
 async function extractPdfText(supabase: any, documentId: string): Promise<string> {
-  // Fetch file_url from the document record
   const { data: doc, error: docErr } = await supabase
     .from("procurement_documents")
     .select("file_url")
@@ -20,7 +19,6 @@ async function extractPdfText(supabase: any, documentId: string): Promise<string
     throw new Error("Não foi possível encontrar o arquivo do documento no banco de dados");
   }
 
-  // Download the PDF from storage
   const { data: fileData, error: downloadErr } = await supabase.storage
     .from("documents")
     .download(doc.file_url);
@@ -29,7 +27,6 @@ async function extractPdfText(supabase: any, documentId: string): Promise<string
     throw new Error(`Erro ao baixar o PDF do Storage: ${downloadErr?.message || "arquivo não encontrado"}`);
   }
 
-  // Extract text using unpdf
   const arrayBuffer = await fileData.arrayBuffer();
   const { text: extractedText } = await extractText(new Uint8Array(arrayBuffer));
   const text = Array.isArray(extractedText) ? extractedText.join("\n").trim() : (extractedText || "").toString().trim();
@@ -40,6 +37,80 @@ async function extractPdfText(supabase: any, documentId: string): Promise<string
 
   console.log(`PDF text extracted: ${text.length} characters from ${doc.file_url}`);
   return text;
+}
+
+// Recursively list all files from a storage bucket folder
+async function listAllBucketFiles(supabase: any, bucket: string, folder = ""): Promise<{ name: string; path: string }[]> {
+  const { data, error } = await supabase.storage.from(bucket).list(folder, { limit: 500 });
+  if (error || !data) return [];
+
+  const results: { name: string; path: string }[] = [];
+  for (const item of data) {
+    if (item.name === ".emptyFolderPlaceholder") continue;
+    const fullPath = folder ? `${folder}/${item.name}` : item.name;
+    if (item.id === null) {
+      // It's a folder — recurse
+      const subFiles = await listAllBucketFiles(supabase, bucket, fullPath);
+      results.push(...subFiles);
+    } else {
+      results.push({ name: item.name, path: fullPath });
+    }
+  }
+  return results;
+}
+
+// Fetch knowledge base content for AI context
+async function fetchKnowledgeBaseContext(supabase: any): Promise<string> {
+  try {
+    const files = await listAllBucketFiles(supabase, "base_conhecimento");
+    if (files.length === 0) return "";
+
+    const chunks: string[] = [];
+    let totalLength = 0;
+    const MAX_CONTEXT = 15000;
+
+    for (const file of files) {
+      if (totalLength >= MAX_CONTEXT) break;
+
+      const ext = file.name.split(".").pop()?.toLowerCase();
+
+      if (ext === "txt") {
+        const { data, error } = await supabase.storage.from("base_conhecimento").download(file.path);
+        if (error || !data) continue;
+        const text = await data.text();
+        if (text.trim()) {
+          const chunk = `--- [${file.path}] ---\n${text.trim()}`;
+          chunks.push(chunk.substring(0, MAX_CONTEXT - totalLength));
+          totalLength += chunk.length;
+        }
+      } else if (ext === "pdf") {
+        try {
+          const { data, error } = await supabase.storage.from("base_conhecimento").download(file.path);
+          if (error || !data) continue;
+          const arrayBuffer = await data.arrayBuffer();
+          const { text: extractedText } = await extractText(new Uint8Array(arrayBuffer));
+          const text = Array.isArray(extractedText) ? extractedText.join("\n").trim() : (extractedText || "").toString().trim();
+          if (text) {
+            const chunk = `--- [${file.path}] ---\n${text}`;
+            chunks.push(chunk.substring(0, MAX_CONTEXT - totalLength));
+            totalLength += chunk.length;
+          }
+        } catch (e) {
+          console.warn(`Failed to extract PDF from KB: ${file.path}`, e);
+        }
+      } else if (ext === "docx") {
+        chunks.push(`--- [${file.path}] --- (documento DOCX - apenas referência)`);
+        totalLength += 60;
+      }
+    }
+
+    if (chunks.length === 0) return "";
+    console.log(`Knowledge base context: ${chunks.length} files, ${totalLength} chars`);
+    return `\n\nContexto da Base de Conhecimento (use como referência para a análise):\n${chunks.join("\n\n")}`;
+  } catch (e) {
+    console.error("Error fetching knowledge base:", e);
+    return "";
+  }
 }
 
 serve(async (req) => {
@@ -65,7 +136,6 @@ serve(async (req) => {
       console.log("Detected PDF placeholder, extracting text from storage...");
       content = await extractPdfText(supabase, document_id);
 
-      // Update raw_content in database with the real extracted text
       await supabase.from("procurement_documents")
         .update({ raw_content: content })
         .eq("id", document_id);
@@ -87,6 +157,9 @@ serve(async (req) => {
     const rulesContext = (rules || [])
       .map((r: any) => `- ${r.name} (${r.category}, severidade ${r.severity}): ${r.description || ""}`)
       .join("\n");
+
+    // Fetch knowledge base context
+    const knowledgeBaseContext = await fetchKnowledgeBaseContext(supabase);
 
     // Call Lovable AI with tool calling for structured extraction
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -112,7 +185,7 @@ Analise o documento com atencao especial a:
 - Irregularidades em geral`}
 
 Regras ativas para analise:
-${rulesContext || "Nenhuma regra ativa cadastrada."}`,
+${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}`,
           },
           {
             role: "user",

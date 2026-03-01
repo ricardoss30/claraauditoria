@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { FolderPlus, Upload, Folder, FileText, Download, Trash2, Database } from "lucide-react";
+import { FolderPlus, Upload, Folder, FileText, Download, Trash2, Database, Eye } from "lucide-react";
+import { FilePreviewDialog } from "@/components/FilePreviewDialog";
 
 const ACCEPTED_TYPES = [
   "application/pdf",
@@ -107,7 +108,16 @@ export default function Sources() {
   };
 
   const [dragOver, setDragOver] = useState(false);
+  const [previewFile, setPreviewFile] = useState<{ name: string; url: string; type: string } | null>(null);
 
+  const handlePreview = async (name: string) => {
+    const ext = name.split(".").pop()?.toLowerCase() ?? "";
+    if (!["pdf", "txt"].includes(ext)) return;
+    const path = folder ? `${folder}/${name}` : name;
+    const url = await getFileUrl(path);
+    if (url) setPreviewFile({ name, url, type: ext });
+    else toast.error("Erro ao gerar link de preview");
+  };
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -202,6 +212,11 @@ export default function Sources() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
+                        {["pdf", "txt"].includes(getFileExtension(f.name).toLowerCase()) && (
+                          <Button size="icon" variant="ghost" onClick={() => handlePreview(f.name)}>
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button size="icon" variant="ghost" onClick={() => handleDownload(f.name)}>
                           <Download className="h-4 w-4" />
                         </Button>
@@ -254,6 +269,8 @@ export default function Sources() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        {/* File Preview Dialog */}
+        <FilePreviewDialog file={previewFile} onClose={() => setPreviewFile(null)} />
       </div>
     </AppLayout>
   );
