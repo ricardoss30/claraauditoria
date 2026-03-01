@@ -1,43 +1,59 @@
 
 
-## Adicionar Botao de Excluir Documentos
+## Gerenciar Prompt do Agente - Plano
 
-### O que sera feito
+### 1. Migration: Criar tabela `system_settings`
 
-Adicionar um botao de exclusao em cada linha da tabela de documentos, com dialogo de confirmacao antes de excluir. A exclusao remove o documento do banco de dados, seus alertas associados e o arquivo do Storage.
-
-### Alteracoes
-
-**`src/pages/Documents.tsx`**
-- Importar icone `Trash2` do lucide-react
-- Importar componentes `AlertDialog` para confirmacao
-- Adicionar coluna "Acoes" na tabela
-- Adicionar botao de lixeira em cada linha (com `e.stopPropagation()` para nao navegar ao clicar)
-- Adicionar estado para controlar o dialogo de confirmacao e o documento selecionado
-- Implementar funcao `handleDelete` que:
-  1. Deleta alertas associados (`risk_alerts` onde `document_id` = id)
-  2. Remove o arquivo do bucket `documents` no Storage (se `file_url` existir)
-  3. Deleta o documento da tabela `procurement_documents`
-  4. Invalida a query para atualizar a lista
-  5. Exibe toast de sucesso ou erro
-
-**`src/hooks/useDocuments.ts`**
-- Nenhuma alteracao necessaria (a invalidacao sera feita diretamente via `useQueryClient`)
-
-### Detalhes Tecnicos
-
-- A RLS ja permite que admins deletem documentos (`Admin can delete documents` - DELETE policy)
-- Alertas (`risk_alerts`) nao tem policy de DELETE, entao sera necessario criar uma migration para permitir que admins deletem alertas associados
-- A exclusao segue a ordem: alertas -> arquivo do storage -> documento (para evitar orfaos)
-- O dialogo de confirmacao usa `AlertDialog` do shadcn/ui ja disponivel no projeto
-
-### Migration SQL necessaria
-
-Adicionar policy de DELETE na tabela `risk_alerts` para admins:
+Tabela key-value para armazenar configurações do sistema, incluindo o prompt:
 
 ```sql
-CREATE POLICY "Admin can delete alerts"
-ON public.risk_alerts
-FOR DELETE
-USING (has_role(auth.uid(), 'admin'::app_role));
+CREATE TABLE public.system_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  updated_by UUID REFERENCES auth.users(id)
+);
+
+ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Admin can read settings" ON public.system_settings
+  FOR SELECT USING (has_role(auth.uid(), 'admin'::app_role));
+
+CREATE POLICY "Admin can upsert settings" ON public.system_settings
+  FOR ALL USING (has_role(auth.uid(), 'admin'::app_role));
+
+-- Seed com o prompt atual
+INSERT INTO public.system_settings (key, value) VALUES ('agent_system_prompt', 
+'Voce e um especialista em analise de licitacoes publicas brasileiras...');
 ```
+
+### 2. Criar `src/hooks/useSystemSettings.ts`
+
+Hook com `useQuery` para buscar o valor por key e `useMutation` para upsert, invalidando a query no sucesso.
+
+### 3. Criar `src/components/AgentPromptManager.tsx`
+
+Componente com:
+- **Textarea** grande (min 400px altura) com o conteúdo do prompt
+- **Botão "Salvar"** — upsert na tabela `system_settings` com loading spinner
+- **Botão "Limpar Prompt"** — limpa o textarea (com confirmação)
+- **Botão "Exportar Prompt em PDF"** — reutiliza padrão `window.print` via iframe oculto
+- **Botão "Visualizar Atual"** — recarrega o valor do banco descartando edições locais
+- Toast de sucesso/erro via `sonner`
+
+### 4. Atualizar `src/pages/Settings.tsx`
+
+Adicionar o componente `AgentPromptManager` como um novo `Card` abaixo da gestão de usuários.
+
+### 5. Atualizar `supabase/functions/process-document/index.ts`
+
+Antes de montar as mensagens para a IA, buscar o prompt da tabela `system_settings` (key `agent_system_prompt`). Se existir, usar como system message; caso contrário, usar o prompt hardcoded como fallback.
+
+### Arquivos alterados
+- Nova migration SQL (`system_settings`)
+- `src/integrations/supabase/types.ts` (auto-regenerado)
+- `src/hooks/useSystemSettings.ts` (novo)
+- `src/components/AgentPromptManager.tsx` (novo)
+- `src/pages/Settings.tsx`
+- `supabase/functions/process-document/index.ts`
+
