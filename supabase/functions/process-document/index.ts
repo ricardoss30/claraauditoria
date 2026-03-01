@@ -73,6 +73,13 @@ serve(async (req) => {
 
     if (!content.trim()) throw new Error("Nenhum conteúdo disponível para análise");
 
+    // Fetch custom system prompt
+    const { data: promptSetting } = await supabase
+      .from("system_settings")
+      .select("value")
+      .eq("key", "agent_system_prompt")
+      .maybeSingle();
+
     // Fetch active rules
     const { data: rules } = await supabase.from("risk_rules").select("*").eq("is_active", true);
     const rulesContext = (rules || [])
@@ -91,19 +98,19 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `Voce e um especialista em analise de licitacoes publicas brasileiras. Sua tarefa e:
+            content: `${promptSetting?.value || `Voce e um especialista em analise de licitacoes publicas brasileiras. Sua tarefa e:
 1. Extrair dados estruturados do documento de licitacao
 2. Analisar riscos com base nas regras ativas fornecidas
 3. Gerar alertas para cada risco identificado
-
-Regras ativas para analise:
-${rulesContext || "Nenhuma regra ativa cadastrada."}
 
 Analise o documento com atencao especial a:
 - Sobrepreco: valores acima do mercado
 - Direcionamento de marca: mencoes a marcas especificas sem justificativa
 - Prazo exiguo: prazos muito curtos para o tipo de licitacao
-- Irregularidades em geral`,
+- Irregularidades em geral`}
+
+Regras ativas para analise:
+${rulesContext || "Nenhuma regra ativa cadastrada."}`,
           },
           {
             role: "user",
