@@ -442,6 +442,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      match_conhecimento_chunks: {
+        Args: { filter?: Json; match_count?: number; query_embedding: string }
+        Returns: {
+          content: string
+          id: number
+          metadata: Json
+          similarity: number
+        }[]
+      }
       match_knowledge: {
         Args: { match_count?: number; query_embedding: string }
         Returns: {
