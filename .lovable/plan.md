@@ -1,35 +1,26 @@
 
 
-## Diagnóstico
+## Plano: Corrigir Embedding para Funcionar com Chunks Sem Vetores
 
-Identifiquei dois problemas nos logs:
+### Problema Raiz
+O modelo `gemini-2.5-flash-lite` não consegue gerar arrays JSON de 384 floats de forma confiável via chat completions. Além disso, 78 chamadas sequenciais ultrapassam o timeout de 60s do edge function.
 
-1. **Embeddings falhando** (`embed-knowledge`): O modelo AI retorna os embeddings envolvidos em ````json ... ````, e o `JSON.parse` falha com `Unexpected token`. Os 78 chunks do PDF foram extraídos mas nenhum embedding foi gerado. A tabela `conhecimento_chunks` está **vazia** (provavelmente o insert falhou ou a função não completou).
+### Solução
+Inserir chunks **sem embeddings** (embedding=null) para garantir que o RAG funcione pelo menos via fallback textual. O `process-document` já tem fallback que lê chunks sem embeddings quando a busca vetorial falha.
 
-2. **RAG sem dados** (`process-document`): Como não há chunks na tabela, a busca vetorial retorna vazio e o contexto da Base de Conhecimento não é usado.
+### Mudanças
 
-## Plano de Correção
+#### 1. `supabase/functions/embed-knowledge/index.ts`
+- Tornar embedding **opcional e não-bloqueante**: inserir chunks primeiro sem embedding
+- Tentar gerar embeddings em lote depois, com timeout por chunk e limite de tentativas
+- Se falhar, os chunks ficam sem embedding mas disponíveis para fallback textual
+- Adicionar log claro: "Successfully inserted X chunks (Y with embeddings)"
 
-### 1. Corrigir parsing de embeddings em `embed-knowledge/index.ts`
-
-Na função `generateEmbedding`, antes do `JSON.parse`, limpar markdown code fences do response:
-```typescript
-let content = data.choices?.[0]?.message?.content?.trim();
-// Strip markdown code fences
-content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-const parsed = JSON.parse(content);
-```
-
-### 2. Aplicar mesma correção em `process-document/index.ts`
-
-A função `fetchKnowledgeBaseContext` tem o mesmo problema na geração de embedding para query. Aplicar a mesma limpeza de markdown.
-
-### 3. Corrigir o texto "Raiz" no breadcrumb
-
-O edit anterior substituiu "Raiz" por `{"\n"}` que renderiza como espaço vazio. Trocar para um ícone Home ou o texto correto conforme a intenção do usuário.
+#### 2. `supabase/functions/process-document/index.ts`  
+- Já tem fallback correto (busca chunks sem embedding se vector search falhar)
+- Sem mudanças necessárias
 
 ### Arquivos
-- `supabase/functions/embed-knowledge/index.ts` (corrigir parsing)
-- `supabase/functions/process-document/index.ts` (corrigir parsing)
-- Deploy das duas edge functions
+- `supabase/functions/embed-knowledge/index.ts` (refatorar para inserir chunks primeiro, embeddings depois)
+- Deploy da edge function
 
