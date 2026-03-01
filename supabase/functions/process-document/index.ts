@@ -39,13 +39,62 @@ async function extractPdfText(supabase: any, documentId: string): Promise<string
   return text;
 }
 
+// Portuguese stopwords to ignore in keyword extraction
+const STOPWORDS = new Set([
+  "para", "como", "mais", "este", "esta", "esse", "essa", "pelo", "pela",
+  "pelos", "pelas", "sobre", "entre", "depois", "antes", "desde", "durante",
+  "ainda", "quando", "onde", "qual", "quais", "cada", "todo", "toda", "todos",
+  "todas", "outro", "outra", "outros", "outras", "muito", "muita", "muitos",
+  "muitas", "mesmo", "mesma", "mesmos", "mesmas", "sendo", "sido", "tendo",
+  "deve", "dever", "podem", "poder", "fazer", "feito", "forma", "caso",
+  "valor", "item", "data", "tipo", "nome", "dias", "anos", "apenas",
+  "artigo", "inciso", "conforme", "acordo", "disposto", "previsto",
+]);
+
+function extractKeywords(text: string, topN = 20): string[] {
+  const words = text.toLowerCase().match(/[a-záàâãéèêíïóôõúüç]{4,}/g) || [];
+  const freq = new Map<string, number>();
+  for (const w of words) {
+    if (!STOPWORDS.has(w)) freq.set(w, (freq.get(w) || 0) + 1);
+  }
+  return [...freq.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, topN)
+    .map(([word]) => word);
+}
+
+function scoreChunk(content: string, keywords: string[]): number {
+  const lower = content.toLowerCase();
+  let score = 0;
+  for (const kw of keywords) {
+    const regex = new RegExp(kw, "gi");
+    const matches = lower.match(regex);
+    if (matches) score += matches.length;
+  }
+  return score;
+}
+
 // Fetch knowledge base context from pre-extracted chunks (RAG)
-async function fetchKnowledgeBaseContext(supabase: any, documentContent: string, lovableApiKey: string): Promise<string> {
+interface RagMetadata {
+  rag_context_used: boolean;
+  rag_chunks_count: number;
+  rag_method: "vector_search" | "keyword_ranking" | "none";
+}
+
+async function fetchKnowledgeBaseContext(
+  supabase: any, documentContent: string, lovableApiKey: string
+): Promise<{ context: string; metadata: RagMetadata }> {
+  const noContext: { context: string; metadata: RagMetadata } = {
+    context: "",
+    metadata: { rag_context_used: false, rag_chunks_count: 0, rag_method: "none" },
+  };
+
   try {
     const MAX_CONTEXT = 15000;
+    let ragMethod: RagMetadata["rag_method"] = "none";
 
     // Try vector search first if embeddings exist
-    let chunks: { content: string; file_name: string; similarity?: number }[] = [];
+    let chunks: { content: string; file_name: string; similarity?: number; _score?: number }[] = [];
 
     // Generate embedding for the document summary to use in vector search
     const docSummary = documentContent.substring(0, 2000);
@@ -74,7 +123,6 @@ async function fetchKnowledgeBaseContext(supabase: any, documentContent: string,
         const embData = await embResponse.json();
         let content = embData.choices?.[0]?.message?.content?.trim();
         if (content) {
-          // Strip markdown code fences
           content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
           const parsed = JSON.parse(content);
           if (Array.isArray(parsed) && parsed.length === 384) {
@@ -83,11 +131,10 @@ async function fetchKnowledgeBaseContext(supabase: any, documentContent: string,
         }
       }
     } catch (e) {
-      console.warn("Failed to generate query embedding, falling back to text chunks:", e);
+      console.warn("Failed to generate query embedding, falling back to keyword ranking:", e);
     }
 
     if (queryEmbedding) {
-      // Use vector search via match_knowledge
       const { data, error } = await supabase.rpc("match_knowledge", {
         query_embedding: `[${queryEmbedding.join(",")}]`,
         match_count: 30,
@@ -95,25 +142,32 @@ async function fetchKnowledgeBaseContext(supabase: any, documentContent: string,
 
       if (!error && data && data.length > 0) {
         chunks = data;
+        ragMethod = "vector_search";
         console.log(`Vector search returned ${chunks.length} chunks`);
       }
     }
 
-    // Fallback: if no vector results, get all chunks ordered by recency
+    // Fallback: keyword-ranked search
     if (chunks.length === 0) {
       const { data, error } = await supabase
         .from("conhecimento_chunks")
         .select("content, file_name")
-        .order("created_at", { ascending: false })
-        .limit(100);
+        .limit(500);
 
-      if (!error && data) {
-        chunks = data;
-        console.log(`Fallback: retrieved ${chunks.length} chunks from DB`);
+      if (!error && data && data.length > 0) {
+        const keywords = extractKeywords(documentContent, 20);
+        console.log(`Keyword ranking with terms: ${keywords.slice(0, 10).join(", ")}...`);
+
+        chunks = (data as { content: string; file_name: string }[])
+          .map((chunk) => ({ ...chunk, _score: scoreChunk(chunk.content, keywords) }))
+          .sort((a, b) => (b._score || 0) - (a._score || 0));
+
+        ragMethod = "keyword_ranking";
+        console.log(`Keyword ranking: top scores [${chunks.slice(0, 5).map(c => c._score).join(", ")}]`);
       }
     }
 
-    if (chunks.length === 0) return "";
+    if (chunks.length === 0) return noContext;
 
     // Build context from chunks, respecting max length
     const contextParts: string[] = [];
@@ -127,11 +181,14 @@ async function fetchKnowledgeBaseContext(supabase: any, documentContent: string,
       totalLength += trimmed.length;
     }
 
-    console.log(`Knowledge base RAG context: ${contextParts.length} chunks, ${totalLength} chars`);
-    return `\n\nContexto da Base de Conhecimento (use como referência para a análise):\n${contextParts.join("\n\n")}`;
+    console.log(`Knowledge base RAG context (${ragMethod}): ${contextParts.length} chunks, ${totalLength} chars`);
+    return {
+      context: `\n\nContexto da Base de Conhecimento (use como referência para a análise):\n${contextParts.join("\n\n")}`,
+      metadata: { rag_context_used: true, rag_chunks_count: contextParts.length, rag_method: ragMethod },
+    };
   } catch (e) {
     console.error("Error fetching knowledge base context:", e);
-    return "";
+    return noContext;
   }
 }
 
@@ -181,7 +238,7 @@ serve(async (req) => {
       .join("\n");
 
     // Fetch knowledge base context
-    const knowledgeBaseContext = await fetchKnowledgeBaseContext(supabase, content, lovableApiKey);
+    const { context: knowledgeBaseContext, metadata: ragMetadata } = await fetchKnowledgeBaseContext(supabase, content, lovableApiKey);
 
     // Call Lovable AI with tool calling for structured extraction
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -319,7 +376,7 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}`,
       estimated_value: extracted_data.estimated_value || undefined,
       deadline_at: extracted_data.deadline || undefined,
       description: extracted_data.description || undefined,
-      extracted_data: extracted_data,
+      extracted_data: { ...extracted_data, ...ragMetadata },
       risk_score: Math.min(100, Math.max(0, Math.round(risk_score))),
       status: "processed",
     }).eq("id", document_id);

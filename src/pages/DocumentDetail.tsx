@@ -8,7 +8,8 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { RiskScoreBadge } from "@/components/RiskScoreBadge";
 import { SeverityIndicator } from "@/components/SeverityIndicator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Download, RefreshCw, FileText } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw, FileText, Database } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
 import { useToast } from "@/hooks/use-toast";
 import { ExportButton } from "@/components/ExportButton";
@@ -91,6 +92,12 @@ export default function DocumentDetail() {
             <div className="flex items-center gap-3 mt-1">
               <StatusBadge status={doc.status} />
               <RiskScoreBadge score={doc.risk_score} />
+              {extracted?.rag_context_used && (
+                <Badge variant="outline" className="gap-1 text-xs border-primary/30 text-primary">
+                  <Database className="h-3 w-3" />
+                  Base de Conhecimento ({extracted.rag_chunks_count} chunks · {extracted.rag_method === "vector_search" ? "vetorial" : "palavras-chave"})
+                </Badge>
+              )}
             </div>
           </div>
           <div className="flex gap-2">
