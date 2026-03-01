@@ -1,33 +1,24 @@
 
 
-## Plano: Reestruturar dialogs de "Detalhes do Alerta"
+## Plano: Evitar duplicação de alertas ao reprocessar
 
-### 1. Migração SQL — nova coluna `criteria`
+### Problema
+A edge function `process-document` faz `INSERT` de novos alertas sem remover os anteriores do mesmo documento. Cada reprocessamento duplica os alertas.
 
-```sql
-ALTER TABLE risk_alerts ADD COLUMN criteria text;
+### Solucao
+Adicionar um `DELETE` dos alertas existentes do documento **antes** de inserir os novos, dentro da edge function `process-document/index.ts`.
+
+Na linha onde o documento é atualizado com `status: "processed"` (antes do bloco de inserção de alertas), adicionar:
+
+```typescript
+// Delete existing alerts for this document before inserting new ones
+await supabase.from("risk_alerts").delete().eq("document_id", document_id);
 ```
 
-### 2. `src/pages/DocumentDetail.tsx` — Dialog editável
+### Arquivo alterado
+- `supabase/functions/process-document/index.ts` — adicionar delete antes do insert de alertas
 
-- Adicionar estados: `criteriaValue`, `descriptionValue`, `evidenceValue`
-- Inicializar todos ao abrir dialog (`openAlertDialog`)
-- Reestruturar campos do dialog na ordem:
-  1. **Critérios** — `Textarea` editável (campo `criteria`)
-  2. **Achados** — `Textarea` editável (era "Descrição", campo `description`)
-  3. **Evidência** — `Textarea` editável (campo `evidence`)
-  4. **Recomendações** — `Textarea` editável (era "Notas de Revisão", campo `review_notes`)
-- Atualizar mutation para salvar todos os 4 campos ao clicar nos botões de ação
-- Manter botões Descartar / Em Revisão / Confirmar no footer
-
-### 3. `src/pages/Alerts.tsx` — Somente visualização
-
-- **Tabela**: remover botões CheckCircle e XCircle da coluna Ações, manter apenas Eye
-- **Dialog**: mostrar os 4 campos (Critérios, Achados, Evidência, Recomendações) como texto read-only (sem Textarea)
-- Remover botões de ação do `DialogFooter` (sem Descartar/Em Revisão/Confirmar)
-
-### Arquivos alterados
-- Nova migração SQL (coluna `criteria`)
-- `src/pages/DocumentDetail.tsx`
-- `src/pages/Alerts.tsx`
+### Impacto
+- Alertas anteriores (incluindo os que foram revisados/confirmados) serão removidos ao reprocessar
+- Isso é o comportamento esperado pois o reprocessamento gera uma análise completamente nova
 
