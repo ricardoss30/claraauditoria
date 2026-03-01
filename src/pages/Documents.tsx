@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { RiskScoreBadge } from "@/components/RiskScoreBadge";
 import { EmptyState } from "@/components/EmptyState";
-import { FileText, Search, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { FileText, Search, ChevronLeft, ChevronRight, Plus, Trash2, Eye } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DocumentUploadDialog } from "@/components/DocumentUploadDialog";
 import {
@@ -107,7 +107,7 @@ export default function Documents() {
                       <TableHead>Status</TableHead>
                       <TableHead>Publicação</TableHead>
                       <TableHead>Risco</TableHead>
-                      <TableHead className="w-[60px]">Ações</TableHead>
+                      <TableHead className="w-[100px]">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -127,14 +127,24 @@ export default function Documents() {
                         </TableCell>
                         <TableCell><RiskScoreBadge score={doc.risk_score} /></TableCell>
                         <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-destructive hover:text-destructive"
-                            onClick={(e) => { e.stopPropagation(); setDeleteDoc({ id: doc.id, title: doc.title, file_url: doc.file_url }); }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={(e) => { e.stopPropagation(); navigate(`/documents/${doc.id}`); }}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              onClick={(e) => { e.stopPropagation(); setDeleteDoc({ id: doc.id, title: doc.title, file_url: doc.file_url }); }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
