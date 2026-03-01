@@ -72,8 +72,10 @@ async function fetchKnowledgeBaseContext(supabase: any, documentContent: string,
 
       if (embResponse.ok) {
         const embData = await embResponse.json();
-        const content = embData.choices?.[0]?.message?.content?.trim();
+        let content = embData.choices?.[0]?.message?.content?.trim();
         if (content) {
+          // Strip markdown code fences
+          content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
           const parsed = JSON.parse(content);
           if (Array.isArray(parsed) && parsed.length === 384) {
             queryEmbedding = parsed.map((n: any) => Number(n));
