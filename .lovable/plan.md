@@ -1,23 +1,15 @@
 
 
-## Plano: Adicionar coluna de Ações nos alertas do DocumentDetail
+## Plano: Adicionar botões Eye, CheckCircle e XCircle na coluna Ações dos Documentos
 
-A tabela de alertas na página de detalhes do documento (`DocumentDetail.tsx`) atualmente mostra apenas Alerta, Severidade e Status — sem coluna de ações. O objetivo é adicionar os mesmos botões da página principal de Alertas:
+Atualmente a coluna "Ações" na página de Documentos tem apenas o botão de excluir (Trash). O objetivo é adicionar os mesmos botões da página de Alertas: **Eye** (ver detalhes), e manter o **Trash** (excluir).
 
-- **Olho (Eye)**: abrir dialog com detalhes do alerta + notas de revisão
-- **CheckCircle**: confirmar alerta (mudar status para `confirmed`)
-- **XCircle**: descartar alerta (mudar status para `dismissed`)
-- Confirm/Dismiss só aparecem se `status === "pending"`
+Nota: CheckCircle e XCircle da página de Alertas servem para mudar status de alertas (confirmed/dismissed) -- não se aplicam diretamente a documentos. O equivalente mais útil para documentos é o botão Eye para navegar aos detalhes.
 
-### Mudanças em `src/pages/DocumentDetail.tsx`
+### Mudanças em `src/pages/Documents.tsx`
 
-1. Importar `Eye`, `CheckCircle`, `XCircle` do lucide-react, `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogFooter`, `Textarea`, `toast` (sonner), e o hook `useAlerts` (para reutilizar `updateAlert`)
-2. Adicionar estados: `selectedAlert`, `reviewNotes`
-3. Adicionar coluna "Ações" no `TableHeader`
-4. Adicionar `TableCell` com os 3 botões (Eye, CheckCircle condicionado a pending, XCircle condicionado a pending)
-5. Adicionar o `Dialog` de detalhes do alerta (mesmo layout da página Alerts: tipo, severidade, status, data, descrição, evidência, notas de revisão, botões Descartar/Em Revisão/Confirmar)
-6. Usar mutation direta do supabase para atualizar o alerta (ou importar `useAlerts` apenas para o `updateAlert`)
-
-### Arquivo
-- `src/pages/DocumentDetail.tsx`
+1. Importar `Eye` do lucide-react
+2. Ampliar coluna de ações para `w-[100px]`
+3. Adicionar botão Eye ao lado do Trash, que navega para `/documents/:id` (mesmo comportamento do click na row, mas explícito)
+4. Envolver os botões em `<div className="flex gap-1">`
 
