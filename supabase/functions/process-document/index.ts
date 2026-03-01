@@ -73,12 +73,14 @@ serve(async (req) => {
 
     if (!content.trim()) throw new Error("Nenhum conteúdo disponível para análise");
 
-    // Fetch custom system prompt
-    const { data: promptSetting } = await supabase
+    // Fetch custom prompts
+    const { data: promptSettings } = await supabase
       .from("system_settings")
-      .select("value")
-      .eq("key", "agent_system_prompt")
-      .maybeSingle();
+      .select("key, value")
+      .in("key", ["agent_system_prompt", "user_system_prompt", "structured_output_prompt"]);
+
+    const promptMap: Record<string, string> = {};
+    (promptSettings || []).forEach((s: any) => { promptMap[s.key] = s.value; });
 
     // Fetch active rules
     const { data: rules } = await supabase.from("risk_rules").select("*").eq("is_active", true);
@@ -98,7 +100,7 @@ serve(async (req) => {
         messages: [
           {
             role: "system",
-            content: `${promptSetting?.value || `Voce e um especialista em analise de licitacoes publicas brasileiras. Sua tarefa e:
+            content: `${promptMap.agent_system_prompt || `Voce e um especialista em analise de licitacoes publicas brasileiras. Sua tarefa e:
 1. Extrair dados estruturados do documento de licitacao
 2. Analisar riscos com base nas regras ativas fornecidas
 3. Gerar alertas para cada risco identificado
@@ -114,7 +116,7 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}`,
           },
           {
             role: "user",
-            content: `Analise o seguinte documento de licitacao:\n\n${content.substring(0, 30000)}`,
+            content: `${promptMap.user_system_prompt ? promptMap.user_system_prompt + "\n\n" : ""}Analise o seguinte documento de licitacao:\n\n${content.substring(0, 30000)}`,
           },
         ],
         tools: [
@@ -122,7 +124,7 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}`,
             type: "function",
             function: {
               name: "process_document_analysis",
-              description: "Retorna a extracao de dados e analise de risco do documento de licitacao",
+              description: promptMap.structured_output_prompt || "Retorna a extracao de dados e analise de risco do documento de licitacao",
               parameters: {
                 type: "object",
                 properties: {

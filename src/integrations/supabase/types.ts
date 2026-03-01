@@ -292,6 +292,30 @@ export type Database = {
         }
         Relationships: []
       }
+      setting_versions: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          id: string
+          setting_key: string
+          value: string
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          setting_key: string
+          value: string
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string
+          setting_key?: string
+          value?: string
+        }
+        Relationships: []
+      }
       system_settings: {
         Row: {
           key: string
