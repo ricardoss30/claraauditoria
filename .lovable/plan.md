@@ -1,40 +1,54 @@
 
 
-## Plano: Diff Visual entre Versoes do Prompt
+## Plano: Transformar "Fontes de Dados" em Gerenciador de Base de Conhecimento
 
-### Abordagem
+### 1. Deletar fontes existentes do banco
 
-Implementar um diff visual inline (sem dependencias externas) que compara linha-a-linha a versao selecionada do historico com o valor atual salvo no banco. O diff sera exibido em um Dialog ao clicar em um botao "Comparar" em cada versao do historico.
+Executar SQL para remover "Edital teste" e "Editais Alagoinhas" da tabela `data_sources`.
 
-### Implementacao
+### 2. Criar `src/services/knowledgeBaseService.ts`
 
-#### 1. Criar `src/lib/diff.ts`
+Serviço conforme especificado pelo usuário com funções:
+- `uploadFile(file, path)` — upload com upsert
+- `listFiles(folder)` — listar arquivos/pastas
+- `getFileUrl(path)` — URL assinada (1h)
+- `deleteFile(path)` — remover arquivo
+- `createFolder(path)` — criar pasta (upload de `.emptyFolderPlaceholder`)
+- `deleteFolder(path)` — listar e remover todos arquivos da pasta
 
-Funcao utilitaria de diff linha-a-linha simples:
-- Recebe dois textos (antigo e novo)
-- Retorna array de `{ type: 'added' | 'removed' | 'unchanged', line: string }`
-- Usa algoritmo LCS (Longest Common Subsequence) simplificado para identificar linhas adicionadas, removidas e inalteradas
+### 3. Criar `src/hooks/useKnowledgeBase.ts`
 
-#### 2. Criar `src/components/DiffViewer.tsx`
+Hook React Query para:
+- `useFiles(folder)` — query que lista arquivos na pasta atual
+- `uploadMutation` — upload de arquivo
+- `deleteMutation` — remover arquivo
+- `createFolderMutation` — criar pasta
+- `deleteFolderMutation` — remover pasta
+- Invalidação automática de queries após mutations
 
-Componente que renderiza o resultado do diff:
-- Linhas removidas com fundo vermelho claro e prefixo `-`
-- Linhas adicionadas com fundo verde claro e prefixo `+`
-- Linhas inalteradas com fundo neutro
-- Fonte monoespacada, scroll vertical, numeracao de linhas
-- Suporte a dark mode via classes Tailwind
+### 4. Reescrever `src/pages/Sources.tsx`
 
-#### 3. Atualizar `src/components/PromptManager.tsx`
+Substituir completamente a página atual por um gerenciador de arquivos:
+- **Header**: Título "Base de Conhecimento" + botões "Nova Pasta" e "Upload Arquivo"
+- **Breadcrumb**: Navegação por caminho de pastas (ex: `/ > contratos > 2024`)
+- **Lista**: Tabela com colunas Nome, Tipo, Tamanho, Data — pastas primeiro, depois arquivos
+- **Ações por item**: Download (arquivos), Excluir
+- **Dialog Upload**: Aceita PDF, TXT, DOCX com drag-and-drop
+- **Dialog Nova Pasta**: Input para nome da pasta
+- **Filtro de tipos**: Badge para PDF/TXT/DOCX
 
-- Adicionar estado `diffVersion` para a versao selecionada para comparacao
-- Adicionar botao "Comparar" (icone `GitCompareArrows` do lucide) ao lado de "Restaurar" em cada item do historico
-- Ao clicar, abrir um `Dialog` com:
-  - Header: "Comparacao: [data da versao] vs Atual"
-  - Corpo: `<DiffViewer oldText={versionValue} newText={savedPrompt} />`
-  - Footer: botoes "Fechar" e "Restaurar esta versao"
+### 5. Atualizar `src/components/layout/AppSidebar.tsx`
+
+Renomear item "Fontes de Dados" para "Base de Conhecimento" no menu (manter rota `/sources`).
+
+### 6. Configurar RLS no bucket `base_conhecimento`
+
+Migration SQL para adicionar políticas de storage permitindo usuários autenticados fazerem upload, leitura e exclusão.
 
 ### Arquivos
-- `src/lib/diff.ts` (novo)
-- `src/components/DiffViewer.tsx` (novo)
-- `src/components/PromptManager.tsx` (editado)
+- Migration SQL (delete data_sources + storage policies)
+- `src/services/knowledgeBaseService.ts` (novo)
+- `src/hooks/useKnowledgeBase.ts` (novo)
+- `src/pages/Sources.tsx` (reescrito)
+- `src/components/layout/AppSidebar.tsx` (renomear label)
 
