@@ -1,109 +1,256 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
-import { useSources } from "@/hooks/useSources";
+import { useKnowledgeBase } from "@/hooks/useKnowledgeBase";
+import { getFileUrl } from "@/services/knowledgeBaseService";
 import { useAuth } from "@/contexts/AuthContext";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/EmptyState";
-import { Database, Plus, Pencil, RefreshCw } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { formatDistanceToNow } from "date-fns";
-import { ptBR } from "date-fns/locale";
+import { FolderPlus, Upload, Folder, FileText, Download, Trash2, Database } from "lucide-react";
 
-const defaultForm = { name: "", source_type: "api", base_url: "" };
+const ACCEPTED_TYPES = [
+  "application/pdf",
+  "text/plain",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+const ACCEPTED_EXTENSIONS = ".pdf,.txt,.docx";
+
+function formatBytes(bytes: number) {
+  if (!bytes) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getFileExtension(name: string) {
+  return name.split(".").pop()?.toUpperCase() ?? "";
+}
 
 export default function Sources() {
-  const { data, isLoading, toggleActive, upsertSource } = useSources();
   const { hasAnyRole } = useAuth();
   const canManage = hasAnyRole(["admin", "gestor"]);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [form, setForm] = useState<any>(defaultForm);
-  const [editId, setEditId] = useState<string | null>(null);
 
-  const openCreate = () => { setForm(defaultForm); setEditId(null); setDialogOpen(true); };
-  const openEdit = (source: any) => { setForm({ name: source.name, source_type: source.source_type, base_url: source.base_url ?? "" }); setEditId(source.id); setDialogOpen(true); };
+  const [currentPath, setCurrentPath] = useState<string[]>([]);
+  const folder = currentPath.join("/");
+  const { files, isLoading, uploadMutation, deleteMutation, createFolderMutation, deleteFolderMutation } = useKnowledgeBase(folder);
 
-  const handleSubmit = () => {
-    upsertSource.mutate({ ...form, id: editId ?? undefined }, {
-      onSuccess: () => { toast.success(editId ? "Fonte atualizada" : "Fonte criada"); setDialogOpen(false); },
-      onError: () => toast.error("Erro ao salvar fonte"),
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [folderOpen, setFolderOpen] = useState(false);
+  const [folderName, setFolderName] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Separate folders and files, hide placeholders
+  const folders = files.filter((f) => f.id === null && f.name !== ".emptyFolderPlaceholder");
+  const realFiles = files.filter((f) => f.id !== null && f.name !== ".emptyFolderPlaceholder");
+
+  const navigateToFolder = (name: string) => setCurrentPath((prev) => [...prev, name]);
+  const navigateToBreadcrumb = (index: number) => setCurrentPath((prev) => prev.slice(0, index));
+
+  const handleUpload = (uploadFiles: FileList | null) => {
+    if (!uploadFiles) return;
+    const validFiles = Array.from(uploadFiles).filter((f) => ACCEPTED_TYPES.includes(f.type));
+    if (validFiles.length === 0) {
+      toast.error("Apenas PDF, TXT e DOCX são aceitos.");
+      return;
+    }
+    Promise.all(
+      validFiles.map((file) => {
+        const path = folder ? `${folder}/${file.name}` : file.name;
+        return uploadMutation.mutateAsync({ file, path });
+      })
+    )
+      .then(() => {
+        toast.success(`${validFiles.length} arquivo(s) enviado(s)`);
+        setUploadOpen(false);
+      })
+      .catch(() => toast.error("Erro ao enviar arquivo(s)"));
+  };
+
+  const handleCreateFolder = () => {
+    if (!folderName.trim()) return;
+    const path = folder ? `${folder}/${folderName.trim()}` : folderName.trim();
+    createFolderMutation.mutate(path, {
+      onSuccess: () => { toast.success("Pasta criada"); setFolderOpen(false); setFolderName(""); },
+      onError: () => toast.error("Erro ao criar pasta"),
     });
   };
+
+  const handleDelete = (name: string, isFolder: boolean) => {
+    const path = folder ? `${folder}/${name}` : name;
+    if (isFolder) {
+      deleteFolderMutation.mutate(path, {
+        onSuccess: () => toast.success("Pasta removida"),
+        onError: () => toast.error("Erro ao remover pasta"),
+      });
+    } else {
+      deleteMutation.mutate(path, {
+        onSuccess: () => toast.success("Arquivo removido"),
+        onError: () => toast.error("Erro ao remover arquivo"),
+      });
+    }
+  };
+
+  const handleDownload = async (name: string) => {
+    const path = folder ? `${folder}/${name}` : name;
+    const url = await getFileUrl(path);
+    if (url) window.open(url, "_blank");
+    else toast.error("Erro ao gerar link de download");
+  };
+
+  const [dragOver, setDragOver] = useState(false);
 
   return (
     <AppLayout>
       <div className="space-y-6">
+        {/* Header */}
         <div className="flex items-center justify-between">
-          <h1 className="text-3xl font-bold">Fontes de Dados</h1>
-          {canManage && <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Nova Fonte</Button>}
+          <h1 className="text-3xl font-bold">Base de Conhecimento</h1>
+          {canManage && (
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setFolderOpen(true)}>
+                <FolderPlus className="h-4 w-4 mr-2" />Nova Pasta
+              </Button>
+              <Button onClick={() => setUploadOpen(true)}>
+                <Upload className="h-4 w-4 mr-2" />Upload Arquivo
+              </Button>
+            </div>
+          )}
         </div>
 
-        {isLoading ? (
-          <div className="grid gap-4 md:grid-cols-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-40" />)}</div>
-        ) : !data || data.length === 0 ? (
-          <EmptyState icon={Database} title="Nenhuma fonte cadastrada" description="Configure fontes de dados para coleta automática de documentos." />
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {data.map((source) => (
-              <Card key={source.id}>
-                <CardHeader className="flex flex-row items-start justify-between pb-2">
-                  <div className="space-y-1">
-                    <CardTitle className="text-base">{source.name}</CardTitle>
-                    {source.base_url && <CardDescription className="text-xs truncate max-w-[250px]">{source.base_url}</CardDescription>}
-                  </div>
-                  {canManage && (
-                    <Switch checked={source.is_active} onCheckedChange={(checked) => toggleActive.mutate({ id: source.id, is_active: checked })} />
+        {/* Breadcrumb */}
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              {currentPath.length > 0 ? (
+                <BreadcrumbLink className="cursor-pointer" onClick={() => navigateToBreadcrumb(0)}>Raiz</BreadcrumbLink>
+              ) : (
+                <BreadcrumbPage>Raiz</BreadcrumbPage>
+              )}
+            </BreadcrumbItem>
+            {currentPath.map((segment, i) => (
+              <span key={i} className="contents">
+                <BreadcrumbSeparator />
+                <BreadcrumbItem>
+                  {i < currentPath.length - 1 ? (
+                    <BreadcrumbLink className="cursor-pointer" onClick={() => navigateToBreadcrumb(i + 1)}>{segment}</BreadcrumbLink>
+                  ) : (
+                    <BreadcrumbPage>{segment}</BreadcrumbPage>
                   )}
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline">{source.source_type}</Badge>
-                    {!source.is_active && <Badge variant="destructive">Inativa</Badge>}
-                  </div>
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <RefreshCw className="h-3 w-3" />
-                    {source.last_sync_at
-                      ? `Sincronizado ${formatDistanceToNow(new Date(source.last_sync_at), { addSuffix: true, locale: ptBR })}`
-                      : "Nunca sincronizado"}
-                  </div>
-                  {canManage && (
-                    <Button size="sm" variant="outline" onClick={() => openEdit(source)}>
-                      <Pencil className="h-3 w-3 mr-1" /> Editar
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
+                </BreadcrumbItem>
+              </span>
             ))}
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        {/* File list */}
+        {isLoading ? (
+          <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+        ) : folders.length === 0 && realFiles.length === 0 ? (
+          <EmptyState icon={Database} title="Pasta vazia" description="Crie pastas ou faça upload de arquivos para a base de conhecimento." />
+        ) : (
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nome</TableHead>
+                  <TableHead className="w-[100px]">Tipo</TableHead>
+                  <TableHead className="w-[100px]">Tamanho</TableHead>
+                  <TableHead className="w-[140px]">Modificado</TableHead>
+                  <TableHead className="w-[100px] text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {folders.map((f) => (
+                  <TableRow key={f.name} className="cursor-pointer" onClick={() => navigateToFolder(f.name)}>
+                    <TableCell className="flex items-center gap-2 font-medium">
+                      <Folder className="h-4 w-4 text-muted-foreground" />
+                      {f.name}
+                    </TableCell>
+                    <TableCell><Badge variant="outline">Pasta</Badge></TableCell>
+                    <TableCell>—</TableCell>
+                    <TableCell>—</TableCell>
+                    <TableCell className="text-right">
+                      {canManage && (
+                        <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); handleDelete(f.name, true); }}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {realFiles.map((f) => (
+                  <TableRow key={f.name}>
+                    <TableCell className="flex items-center gap-2 font-medium">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      {f.name}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary">{getFileExtension(f.name)}</Badge>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground text-xs">{formatBytes((f.metadata as any)?.size ?? 0)}</TableCell>
+                    <TableCell className="text-muted-foreground text-xs">
+                      {f.updated_at ? new Date(f.updated_at).toLocaleDateString("pt-BR") : "—"}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button size="icon" variant="ghost" onClick={() => handleDownload(f.name)}>
+                          <Download className="h-4 w-4" />
+                        </Button>
+                        {canManage && (
+                          <Button size="icon" variant="ghost" onClick={() => handleDelete(f.name, false)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
         )}
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        {/* Upload Dialog */}
+        <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
           <DialogContent>
-            <DialogHeader><DialogTitle>{editId ? "Editar Fonte" : "Nova Fonte"}</DialogTitle></DialogHeader>
-            <div className="space-y-4">
-              <div><Label>Nome</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-              <div>
-                <Label>Tipo</Label>
-                <Select value={form.source_type} onValueChange={(v) => setForm({ ...form, source_type: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="api">API</SelectItem>
-                    <SelectItem value="scraping">Web Scraping</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div><Label>URL Base</Label><Input value={form.base_url} onChange={(e) => setForm({ ...form, base_url: e.target.value })} placeholder="https://..." /></div>
+            <DialogHeader><DialogTitle>Upload de Arquivo</DialogTitle></DialogHeader>
+            <div
+              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${dragOver ? "border-primary bg-primary/5" : "border-muted-foreground/25"}`}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => { e.preventDefault(); setDragOver(false); handleUpload(e.dataTransfer.files); }}
+            >
+              <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground mb-2">Arraste arquivos aqui ou clique para selecionar</p>
+              <p className="text-xs text-muted-foreground mb-4">PDF, TXT, DOCX</p>
+              <input ref={fileInputRef} type="file" accept={ACCEPTED_EXTENSIONS} multiple className="hidden" onChange={(e) => handleUpload(e.target.files)} />
+              <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploadMutation.isPending}>
+                {uploadMutation.isPending ? "Enviando..." : "Selecionar Arquivos"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* New Folder Dialog */}
+        <Dialog open={folderOpen} onOpenChange={setFolderOpen}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Nova Pasta</DialogTitle></DialogHeader>
+            <div>
+              <Label>Nome da pasta</Label>
+              <Input value={folderName} onChange={(e) => setFolderName(e.target.value)} placeholder="Ex: contratos-2024" />
             </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancelar</Button>
-              <Button onClick={handleSubmit} disabled={!form.name || upsertSource.isPending}>Salvar</Button>
+              <Button variant="outline" onClick={() => setFolderOpen(false)}>Cancelar</Button>
+              <Button onClick={handleCreateFolder} disabled={!folderName.trim() || createFolderMutation.isPending}>Criar</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>

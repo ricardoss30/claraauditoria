@@ -15,7 +15,7 @@ const mainItems = [
   { title: "Documentos", url: "/documents", icon: FileText },
   { title: "Alertas", url: "/alerts", icon: AlertTriangle },
   { title: "Regras", url: "/rules", icon: Shield },
-  { title: "Fontes de Dados", url: "/sources", icon: Database },
+  { title: "Base de Conhecimento", url: "/sources", icon: Database },
 ];
 
 const promptItems = [
