@@ -51,3 +51,11 @@ export async function deleteFolder(path: string) {
     if (error) throw error;
   }
 }
+
+export async function embedFile(filePath: string, action: "upsert" | "delete" = "upsert") {
+  const { data, error } = await supabase.functions.invoke("embed-knowledge", {
+    body: { file_path: filePath, action },
+  });
+  if (error) console.error("Embed error:", error);
+  return data;
+}

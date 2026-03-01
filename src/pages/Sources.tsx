@@ -1,7 +1,7 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useKnowledgeBase } from "@/hooks/useKnowledgeBase";
-import { getFileUrl } from "@/services/knowledgeBaseService";
+import { getFileUrl, embedFile } from "@/services/knowledgeBaseService";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/breadcrumb";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { FolderPlus, Upload, Folder, FileText, Download, Trash2, Database, Eye } from "lucide-react";
+import { FolderPlus, Upload, Folder, FileText, Download, Trash2, Database, Eye, Search } from "lucide-react";
 import { FilePreviewDialog } from "@/components/FilePreviewDialog";
 
 const ACCEPTED_TYPES = [
@@ -48,10 +48,24 @@ export default function Sources() {
   const [folderOpen, setFolderOpen] = useState(false);
   const [folderName, setFolderName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // Separate folders and files, hide placeholders
-  const folders = files.filter((f) => f.id === null && f.name !== ".emptyFolderPlaceholder");
-  const realFiles = files.filter((f) => f.id !== null && f.name !== ".emptyFolderPlaceholder");
+  const allFolders = files.filter((f) => f.id === null && f.name !== ".emptyFolderPlaceholder");
+  const allRealFiles = files.filter((f) => f.id !== null && f.name !== ".emptyFolderPlaceholder");
+
+  // Apply search filter
+  const folders = useMemo(() => {
+    if (!searchQuery.trim()) return allFolders;
+    const q = searchQuery.toLowerCase();
+    return allFolders.filter((f) => f.name.toLowerCase().includes(q));
+  }, [allFolders, searchQuery]);
+
+  const realFiles = useMemo(() => {
+    if (!searchQuery.trim()) return allRealFiles;
+    const q = searchQuery.toLowerCase();
+    return allRealFiles.filter((f) => f.name.toLowerCase().includes(q));
+  }, [allRealFiles, searchQuery]);
 
   const navigateToFolder = (name: string) => setCurrentPath((prev) => [...prev, name]);
   const navigateToBreadcrumb = (index: number) => setCurrentPath((prev) => prev.slice(0, index));
@@ -69,9 +83,15 @@ export default function Sources() {
         return uploadMutation.mutateAsync({ file, path });
       })
     )
-      .then(() => {
+      .then(async () => {
         toast.success(`${validFiles.length} arquivo(s) enviado(s)`);
         setUploadOpen(false);
+        // Trigger embedding for each uploaded file
+        for (const file of validFiles) {
+          const path = folder ? `${folder}/${file.name}` : file.name;
+          embedFile(path, "upsert").catch((e) => console.error("Embed failed:", e));
+        }
+        toast.info("Gerando embeddings vetoriais...");
       })
       .catch(() => toast.error("Erro ao enviar arquivo(s)"));
   };
@@ -94,7 +114,10 @@ export default function Sources() {
       });
     } else {
       deleteMutation.mutate(path, {
-        onSuccess: () => toast.success("Arquivo removido"),
+        onSuccess: () => {
+          toast.success("Arquivo removido");
+          embedFile(path, "delete").catch((e) => console.error("Delete chunks failed:", e));
+        },
         onError: () => toast.error("Erro ao remover arquivo"),
       });
     }
@@ -136,7 +159,19 @@ export default function Sources() {
           )}
         </div>
 
-        {/* Breadcrumb */}
+        {/* Search + Breadcrumb */}
+        <div className="flex items-center gap-4">
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Buscar arquivos..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+        </div>
+
         <Breadcrumb>
           <BreadcrumbList>
             <BreadcrumbItem>
