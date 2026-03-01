@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,19 +8,30 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { RiskScoreBadge } from "@/components/RiskScoreBadge";
 import { SeverityIndicator } from "@/components/SeverityIndicator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Download, RefreshCw, FileText, Database } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw, FileText, Database, Eye, CheckCircle, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
 import { useToast } from "@/hooks/use-toast";
 import { ExportButton } from "@/components/ExportButton";
 import { exportToPDF } from "@/hooks/useExport";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { toast } from "sonner";
+import { useState } from "react";
+import type { Database as DB } from "@/integrations/supabase/types";
+
+type AlertStatus = DB["public"]["Enums"]["alert_status"];
 
 export default function DocumentDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { toast } = useToast();
+  const { toast: uiToast } = useToast();
   const { reprocess, step } = useDocumentUpload();
+  const queryClient = useQueryClient();
+
+  const [selectedAlert, setSelectedAlert] = useState<any | null>(null);
+  const [reviewNotes, setReviewNotes] = useState("");
 
   const { data: doc, isLoading } = useQuery({
     queryKey: ["document", id],
@@ -42,9 +53,56 @@ export default function DocumentDetail() {
     enabled: !!id,
   });
 
+  const updateAlert = useMutation({
+    mutationFn: async ({ alertId, status, review_notes }: { alertId: string; status: AlertStatus; review_notes?: string }) => {
+      const { error } = await supabase
+        .from("risk_alerts")
+        .update({ status, review_notes, reviewed_at: new Date().toISOString() })
+        .eq("id", alertId);
+      if (error) throw error;
+
+      const { data: { user } } = await supabase.auth.getUser();
+      await supabase.from("audit_logs").insert({
+        action: "status_change",
+        resource_type: "alert",
+        resource_id: alertId,
+        user_id: user?.id,
+        details: { new_status: status },
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["document-alerts", id] });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+    },
+  });
+
+  const handleStatusChange = (alertId: string, status: AlertStatus) => {
+    updateAlert.mutate({ alertId, status }, {
+      onSuccess: () => toast.success(`Alerta ${status === "confirmed" ? "confirmado" : status === "dismissed" ? "descartado" : "atualizado"}`),
+      onError: () => toast.error("Erro ao atualizar alerta"),
+    });
+  };
+
+  const handleDialogStatusChange = (status: AlertStatus) => {
+    if (!selectedAlert) return;
+    updateAlert.mutate({ alertId: selectedAlert.id, status, review_notes: reviewNotes }, {
+      onSuccess: () => {
+        toast.success(`Alerta ${status === "confirmed" ? "confirmado" : status === "dismissed" ? "descartado" : "em revisão"}`);
+        setSelectedAlert(null);
+        setReviewNotes("");
+      },
+      onError: () => toast.error("Erro ao atualizar alerta"),
+    });
+  };
+
+  const openAlertDialog = (alert: any) => {
+    setSelectedAlert(alert);
+    setReviewNotes(alert.review_notes || "");
+  };
+
   const handleReprocess = async () => {
     if (!doc?.raw_content || !id) {
-      toast({ title: "Sem conteúdo", description: "Documento não possui conteúdo para reprocessar.", variant: "destructive" });
+      uiToast({ title: "Sem conteúdo", description: "Documento não possui conteúdo para reprocessar.", variant: "destructive" });
       return;
     }
     await reprocess(id, doc.raw_content);
@@ -140,6 +198,7 @@ export default function DocumentDetail() {
                       <TableHead>Alerta</TableHead>
                       <TableHead>Severidade</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -151,6 +210,23 @@ export default function DocumentDetail() {
                         </TableCell>
                         <TableCell><SeverityIndicator severity={a.severity} /></TableCell>
                         <TableCell><StatusBadge status={a.status} /></TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openAlertDialog(a)}>
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            {a.status === "pending" && (
+                              <>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-[hsl(var(--clara-success))]" onClick={() => handleStatusChange(a.id, "confirmed")}>
+                                  <CheckCircle className="h-4 w-4" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleStatusChange(a.id, "dismissed")}>
+                                  <XCircle className="h-4 w-4" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -169,6 +245,72 @@ export default function DocumentDetail() {
           </Card>
         )}
       </div>
+
+      {/* Alert Detail Dialog */}
+      <Dialog open={!!selectedAlert} onOpenChange={(open) => { if (!open) { setSelectedAlert(null); setReviewNotes(""); } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Detalhes do Alerta</DialogTitle>
+          </DialogHeader>
+          {selectedAlert && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Tipo</span>
+                  <p className="font-medium">{selectedAlert.alert_type}</p>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Severidade</span>
+                  <div className="mt-1"><SeverityIndicator severity={selectedAlert.severity} /></div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Status</span>
+                  <div className="mt-1"><StatusBadge status={selectedAlert.status} /></div>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Data</span>
+                  <p className="font-medium">{new Date(selectedAlert.created_at).toLocaleDateString("pt-BR")}</p>
+                </div>
+              </div>
+
+              {selectedAlert.description && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Descrição</span>
+                  <p className="mt-1">{selectedAlert.description}</p>
+                </div>
+              )}
+
+              {selectedAlert.evidence && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Evidência</span>
+                  <pre className="mt-1 text-xs whitespace-pre-wrap bg-muted p-3 rounded-md max-h-40 overflow-auto">{selectedAlert.evidence}</pre>
+                </div>
+              )}
+
+              <div className="text-sm">
+                <span className="text-muted-foreground">Notas de Revisão</span>
+                <Textarea
+                  className="mt-1"
+                  placeholder="Adicione notas de revisão..."
+                  value={reviewNotes}
+                  onChange={(e) => setReviewNotes(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" onClick={() => handleDialogStatusChange("dismissed")}>
+              <XCircle className="h-4 w-4 mr-1" /> Descartar
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleDialogStatusChange("under_review")}>
+              Em Revisão
+            </Button>
+            <Button size="sm" onClick={() => handleDialogStatusChange("confirmed")}>
+              <CheckCircle className="h-4 w-4 mr-1" /> Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }
