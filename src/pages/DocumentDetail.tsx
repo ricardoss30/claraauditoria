@@ -31,6 +31,9 @@ export default function DocumentDetail() {
   const queryClient = useQueryClient();
 
   const [selectedAlert, setSelectedAlert] = useState<any | null>(null);
+  const [criteriaValue, setCriteriaValue] = useState("");
+  const [descriptionValue, setDescriptionValue] = useState("");
+  const [evidenceValue, setEvidenceValue] = useState("");
   const [reviewNotes, setReviewNotes] = useState("");
 
   const { data: doc, isLoading } = useQuery({
@@ -54,10 +57,10 @@ export default function DocumentDetail() {
   });
 
   const updateAlert = useMutation({
-    mutationFn: async ({ alertId, status, review_notes }: { alertId: string; status: AlertStatus; review_notes?: string }) => {
+    mutationFn: async ({ alertId, status, criteria, description, evidence, review_notes }: { alertId: string; status: AlertStatus; criteria?: string; description?: string; evidence?: string; review_notes?: string }) => {
       const { error } = await supabase
         .from("risk_alerts")
-        .update({ status, review_notes, reviewed_at: new Date().toISOString() })
+        .update({ status, criteria, description, evidence, review_notes, reviewed_at: new Date().toISOString() } as any)
         .eq("id", alertId);
       if (error) throw error;
 
@@ -85,11 +88,17 @@ export default function DocumentDetail() {
 
   const handleDialogStatusChange = (status: AlertStatus) => {
     if (!selectedAlert) return;
-    updateAlert.mutate({ alertId: selectedAlert.id, status, review_notes: reviewNotes }, {
+    updateAlert.mutate({
+      alertId: selectedAlert.id,
+      status,
+      criteria: criteriaValue,
+      description: descriptionValue,
+      evidence: evidenceValue,
+      review_notes: reviewNotes,
+    }, {
       onSuccess: () => {
         toast.success(`Alerta ${status === "confirmed" ? "confirmado" : status === "dismissed" ? "descartado" : "em revisão"}`);
         setSelectedAlert(null);
-        setReviewNotes("");
       },
       onError: () => toast.error("Erro ao atualizar alerta"),
     });
@@ -97,6 +106,9 @@ export default function DocumentDetail() {
 
   const openAlertDialog = (alert: any) => {
     setSelectedAlert(alert);
+    setCriteriaValue(alert.criteria || "");
+    setDescriptionValue(alert.description || "");
+    setEvidenceValue(alert.evidence || "");
     setReviewNotes(alert.review_notes || "");
   };
 
@@ -273,25 +285,41 @@ export default function DocumentDetail() {
                 </div>
               </div>
 
-              {selectedAlert.description && (
-                <div className="text-sm">
-                  <span className="text-muted-foreground">Descrição</span>
-                  <p className="mt-1">{selectedAlert.description}</p>
-                </div>
-              )}
-
-              {selectedAlert.evidence && (
-                <div className="text-sm">
-                  <span className="text-muted-foreground">Evidência</span>
-                  <pre className="mt-1 text-xs whitespace-pre-wrap bg-muted p-3 rounded-md max-h-40 overflow-auto">{selectedAlert.evidence}</pre>
-                </div>
-              )}
-
               <div className="text-sm">
-                <span className="text-muted-foreground">Notas de Revisão</span>
+                <span className="text-muted-foreground">Critérios</span>
                 <Textarea
                   className="mt-1"
-                  placeholder="Adicione notas de revisão..."
+                  placeholder="Descreva os critérios aplicados..."
+                  value={criteriaValue}
+                  onChange={(e) => setCriteriaValue(e.target.value)}
+                />
+              </div>
+
+              <div className="text-sm">
+                <span className="text-muted-foreground">Achados</span>
+                <Textarea
+                  className="mt-1"
+                  placeholder="Descreva os achados..."
+                  value={descriptionValue}
+                  onChange={(e) => setDescriptionValue(e.target.value)}
+                />
+              </div>
+
+              <div className="text-sm">
+                <span className="text-muted-foreground">Evidência</span>
+                <Textarea
+                  className="mt-1"
+                  placeholder="Descreva as evidências..."
+                  value={evidenceValue}
+                  onChange={(e) => setEvidenceValue(e.target.value)}
+                />
+              </div>
+
+              <div className="text-sm">
+                <span className="text-muted-foreground">Recomendações</span>
+                <Textarea
+                  className="mt-1"
+                  placeholder="Adicione recomendações..."
                   value={reviewNotes}
                   onChange={(e) => setReviewNotes(e.target.value)}
                 />

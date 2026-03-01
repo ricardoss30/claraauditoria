@@ -5,12 +5,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SeverityIndicator } from "@/components/SeverityIndicator";
 import { EmptyState } from "@/components/EmptyState";
-import { AlertTriangle, CheckCircle, XCircle, Eye } from "lucide-react";
+import { AlertTriangle, Eye } from "lucide-react";
 import { ExportButton } from "@/components/ExportButton";
 import { exportToCSV } from "@/hooks/useExport";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,16 +19,8 @@ import type { Database } from "@/integrations/supabase/types";
 type AlertStatus = Database["public"]["Enums"]["alert_status"];
 
 export default function Alerts() {
-  const { data, isLoading, statusFilter, setStatusFilter, severityFilter, setSeverityFilter, updateAlert } = useAlerts();
+  const { data, isLoading, statusFilter, setStatusFilter, severityFilter, setSeverityFilter } = useAlerts();
   const [selectedAlert, setSelectedAlert] = useState<any>(null);
-  const [reviewNotes, setReviewNotes] = useState("");
-
-  const handleUpdate = (id: string, status: AlertStatus) => {
-    updateAlert.mutate({ id, status, review_notes: reviewNotes || undefined }, {
-      onSuccess: () => { toast.success("Alerta atualizado"); setSelectedAlert(null); setReviewNotes(""); },
-      onError: () => toast.error("Erro ao atualizar alerta"),
-    });
-  };
 
   return (
     <AppLayout>
@@ -103,21 +94,9 @@ export default function Alerts() {
                       <TableCell><StatusBadge status={alert.status} /></TableCell>
                       <TableCell className="text-sm text-muted-foreground">{new Date(alert.created_at).toLocaleDateString("pt-BR")}</TableCell>
                       <TableCell>
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="ghost" onClick={() => { setSelectedAlert(alert); setReviewNotes(alert.review_notes ?? ""); }}>
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          {alert.status === "pending" && (
-                            <>
-                              <Button size="sm" variant="ghost" className="text-[hsl(var(--clara-success))]" onClick={() => handleUpdate(alert.id, "confirmed")}>
-                                <CheckCircle className="h-4 w-4" />
-                              </Button>
-                              <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => handleUpdate(alert.id, "dismissed")}>
-                                <XCircle className="h-4 w-4" />
-                              </Button>
-                            </>
-                          )}
-                        </div>
+                        <Button size="sm" variant="ghost" onClick={() => { setSelectedAlert(alert); }}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -130,7 +109,7 @@ export default function Alerts() {
         <Dialog open={!!selectedAlert} onOpenChange={(open) => { if (!open) setSelectedAlert(null); }}>
           <DialogContent className="max-w-lg">
             <DialogHeader><DialogTitle>{selectedAlert?.title}</DialogTitle></DialogHeader>
-            {selectedAlert && (
+           {selectedAlert && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-muted-foreground">Tipo:</span> {selectedAlert.alert_type}</div>
@@ -138,19 +117,12 @@ export default function Alerts() {
                   <div><span className="text-muted-foreground">Status:</span> <StatusBadge status={selectedAlert.status} /></div>
                   <div><span className="text-muted-foreground">Data:</span> {new Date(selectedAlert.created_at).toLocaleDateString("pt-BR")}</div>
                 </div>
-                {selectedAlert.description && <div><p className="text-sm font-medium mb-1">Descrição</p><p className="text-sm text-muted-foreground">{selectedAlert.description}</p></div>}
-                {selectedAlert.evidence && <div><p className="text-sm font-medium mb-1">Evidência</p><p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedAlert.evidence}</p></div>}
-                <div>
-                  <p className="text-sm font-medium mb-1">Notas de Revisão</p>
-                  <Textarea value={reviewNotes} onChange={(e) => setReviewNotes(e.target.value)} placeholder="Adicione suas observações..." />
-                </div>
+                <div><p className="text-sm font-medium mb-1">Critérios</p><p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedAlert.criteria || "—"}</p></div>
+                <div><p className="text-sm font-medium mb-1">Achados</p><p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedAlert.description || "—"}</p></div>
+                <div><p className="text-sm font-medium mb-1">Evidência</p><p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedAlert.evidence || "—"}</p></div>
+                <div><p className="text-sm font-medium mb-1">Recomendações</p><p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedAlert.review_notes || "—"}</p></div>
               </div>
             )}
-            <DialogFooter className="gap-2">
-              <Button variant="outline" onClick={() => handleUpdate(selectedAlert.id, "dismissed")}>Descartar</Button>
-              <Button variant="outline" className="text-[hsl(var(--clara-warning))]" onClick={() => handleUpdate(selectedAlert.id, "under_review")}>Em Revisão</Button>
-              <Button onClick={() => handleUpdate(selectedAlert.id, "confirmed")}>Confirmar</Button>
-            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>
