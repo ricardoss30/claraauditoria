@@ -176,9 +176,9 @@ export default function Sources() {
           <BreadcrumbList>
             <BreadcrumbItem>
               {currentPath.length > 0 ? (
-                <BreadcrumbLink className="cursor-pointer" onClick={() => navigateToBreadcrumb(0)}>{"\n"}</BreadcrumbLink>
+                <BreadcrumbLink className="cursor-pointer" onClick={() => navigateToBreadcrumb(0)}>Raiz</BreadcrumbLink>
               ) : (
-                <BreadcrumbPage>{"\n"}</BreadcrumbPage>
+                <BreadcrumbPage>Raiz</BreadcrumbPage>
               )}
             </BreadcrumbItem>
             {currentPath.map((segment, i) => (

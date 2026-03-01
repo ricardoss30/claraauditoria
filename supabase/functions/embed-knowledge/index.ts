@@ -50,9 +50,11 @@ async function generateEmbedding(text: string, apiKey: string): Promise<number[]
     }
 
     const data = await response.json();
-    const content = data.choices?.[0]?.message?.content?.trim();
+    let content = data.choices?.[0]?.message?.content?.trim();
     if (!content) return null;
 
+    // Strip markdown code fences that the model sometimes wraps around JSON
+    content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
     const parsed = JSON.parse(content);
     if (Array.isArray(parsed) && parsed.length === 384) {
       return parsed.map((n: any) => Number(n));
