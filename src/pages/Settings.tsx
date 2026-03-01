@@ -1,5 +1,6 @@
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useUsers } from "@/hooks/useUsers";
+import { AgentPromptManager } from "@/components/AgentPromptManager";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -105,6 +106,8 @@ export default function Settings() {
             )}
           </CardContent>
         </Card>
+
+        <AgentPromptManager />
       </div>
     </AppLayout>
   );
