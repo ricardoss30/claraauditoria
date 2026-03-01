@@ -39,76 +39,96 @@ async function extractPdfText(supabase: any, documentId: string): Promise<string
   return text;
 }
 
-// Recursively list all files from a storage bucket folder
-async function listAllBucketFiles(supabase: any, bucket: string, folder = ""): Promise<{ name: string; path: string }[]> {
-  const { data, error } = await supabase.storage.from(bucket).list(folder, { limit: 500 });
-  if (error || !data) return [];
-
-  const results: { name: string; path: string }[] = [];
-  for (const item of data) {
-    if (item.name === ".emptyFolderPlaceholder") continue;
-    const fullPath = folder ? `${folder}/${item.name}` : item.name;
-    if (item.id === null) {
-      // It's a folder — recurse
-      const subFiles = await listAllBucketFiles(supabase, bucket, fullPath);
-      results.push(...subFiles);
-    } else {
-      results.push({ name: item.name, path: fullPath });
-    }
-  }
-  return results;
-}
-
-// Fetch knowledge base content for AI context
-async function fetchKnowledgeBaseContext(supabase: any): Promise<string> {
+// Fetch knowledge base context from pre-extracted chunks (RAG)
+async function fetchKnowledgeBaseContext(supabase: any, documentContent: string, lovableApiKey: string): Promise<string> {
   try {
-    const files = await listAllBucketFiles(supabase, "base_conhecimento");
-    if (files.length === 0) return "";
-
-    const chunks: string[] = [];
-    let totalLength = 0;
     const MAX_CONTEXT = 15000;
 
-    for (const file of files) {
-      if (totalLength >= MAX_CONTEXT) break;
+    // Try vector search first if embeddings exist
+    let chunks: { content: string; file_name: string; similarity?: number }[] = [];
 
-      const ext = file.name.split(".").pop()?.toLowerCase();
+    // Generate embedding for the document summary to use in vector search
+    const docSummary = documentContent.substring(0, 2000);
+    let queryEmbedding: number[] | null = null;
 
-      if (ext === "txt") {
-        const { data, error } = await supabase.storage.from("base_conhecimento").download(file.path);
-        if (error || !data) continue;
-        const text = await data.text();
-        if (text.trim()) {
-          const chunk = `--- [${file.path}] ---\n${text.trim()}`;
-          chunks.push(chunk.substring(0, MAX_CONTEXT - totalLength));
-          totalLength += chunk.length;
-        }
-      } else if (ext === "pdf") {
-        try {
-          const { data, error } = await supabase.storage.from("base_conhecimento").download(file.path);
-          if (error || !data) continue;
-          const arrayBuffer = await data.arrayBuffer();
-          const { text: extractedText } = await extractText(new Uint8Array(arrayBuffer));
-          const text = Array.isArray(extractedText) ? extractedText.join("\n").trim() : (extractedText || "").toString().trim();
-          if (text) {
-            const chunk = `--- [${file.path}] ---\n${text}`;
-            chunks.push(chunk.substring(0, MAX_CONTEXT - totalLength));
-            totalLength += chunk.length;
+    try {
+      const embResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${lovableApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash-lite",
+          messages: [
+            {
+              role: "system",
+              content: "You are an embedding generator. Given a text, output ONLY a JSON array of exactly 384 floating point numbers between -1 and 1 representing the semantic meaning of the text. No other text, no explanation, just the JSON array.",
+            },
+            { role: "user", content: docSummary },
+          ],
+        }),
+      });
+
+      if (embResponse.ok) {
+        const embData = await embResponse.json();
+        const content = embData.choices?.[0]?.message?.content?.trim();
+        if (content) {
+          const parsed = JSON.parse(content);
+          if (Array.isArray(parsed) && parsed.length === 384) {
+            queryEmbedding = parsed.map((n: any) => Number(n));
           }
-        } catch (e) {
-          console.warn(`Failed to extract PDF from KB: ${file.path}`, e);
         }
-      } else if (ext === "docx") {
-        chunks.push(`--- [${file.path}] --- (documento DOCX - apenas referência)`);
-        totalLength += 60;
+      }
+    } catch (e) {
+      console.warn("Failed to generate query embedding, falling back to text chunks:", e);
+    }
+
+    if (queryEmbedding) {
+      // Use vector search via match_knowledge
+      const { data, error } = await supabase.rpc("match_knowledge", {
+        query_embedding: `[${queryEmbedding.join(",")}]`,
+        match_count: 30,
+      });
+
+      if (!error && data && data.length > 0) {
+        chunks = data;
+        console.log(`Vector search returned ${chunks.length} chunks`);
+      }
+    }
+
+    // Fallback: if no vector results, get all chunks ordered by recency
+    if (chunks.length === 0) {
+      const { data, error } = await supabase
+        .from("conhecimento_chunks")
+        .select("content, file_name")
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      if (!error && data) {
+        chunks = data;
+        console.log(`Fallback: retrieved ${chunks.length} chunks from DB`);
       }
     }
 
     if (chunks.length === 0) return "";
-    console.log(`Knowledge base context: ${chunks.length} files, ${totalLength} chars`);
-    return `\n\nContexto da Base de Conhecimento (use como referência para a análise):\n${chunks.join("\n\n")}`;
+
+    // Build context from chunks, respecting max length
+    const contextParts: string[] = [];
+    let totalLength = 0;
+
+    for (const chunk of chunks) {
+      if (totalLength >= MAX_CONTEXT) break;
+      const part = `[${chunk.file_name}]: ${chunk.content}`;
+      const trimmed = part.substring(0, MAX_CONTEXT - totalLength);
+      contextParts.push(trimmed);
+      totalLength += trimmed.length;
+    }
+
+    console.log(`Knowledge base RAG context: ${contextParts.length} chunks, ${totalLength} chars`);
+    return `\n\nContexto da Base de Conhecimento (use como referência para a análise):\n${contextParts.join("\n\n")}`;
   } catch (e) {
-    console.error("Error fetching knowledge base:", e);
+    console.error("Error fetching knowledge base context:", e);
     return "";
   }
 }
@@ -159,7 +179,7 @@ serve(async (req) => {
       .join("\n");
 
     // Fetch knowledge base context
-    const knowledgeBaseContext = await fetchKnowledgeBaseContext(supabase);
+    const knowledgeBaseContext = await fetchKnowledgeBaseContext(supabase, content, lovableApiKey);
 
     // Call Lovable AI with tool calling for structured extraction
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {

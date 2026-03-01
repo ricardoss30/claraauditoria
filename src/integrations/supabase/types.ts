@@ -47,6 +47,33 @@ export type Database = {
         }
         Relationships: []
       }
+      conhecimento_chunks: {
+        Row: {
+          content: string
+          created_at: string | null
+          embedding: string | null
+          file_name: string
+          file_path: string
+          id: number
+        }
+        Insert: {
+          content: string
+          created_at?: string | null
+          embedding?: string | null
+          file_name: string
+          file_path: string
+          id?: number
+        }
+        Update: {
+          content?: string
+          created_at?: string | null
+          embedding?: string | null
+          file_name?: string
+          file_path?: string
+          id?: number
+        }
+        Relationships: []
+      }
       data_sources: {
         Row: {
           base_url: string | null
@@ -414,6 +441,15 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      match_knowledge: {
+        Args: { match_count?: number; query_embedding: string }
+        Returns: {
+          content: string
+          file_name: string
+          id: number
+          similarity: number
+        }[]
       }
     }
     Enums: {
