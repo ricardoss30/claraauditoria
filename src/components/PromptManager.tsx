@@ -5,12 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
-import { Save, Trash2, FileDown, Eye, Loader2, History, RotateCcw } from "lucide-react";
+import { Save, Trash2, FileDown, Eye, Loader2, History, RotateCcw, GitCompareArrows } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { DiffViewer } from "@/components/DiffViewer";
 
 interface PromptManagerProps {
   settingKey: string;
@@ -24,6 +28,7 @@ export function PromptManager({ settingKey, title, placeholder }: PromptManagerP
   const [localValue, setLocalValue] = useState("");
   const [initialized, setInitialized] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [diffVersion, setDiffVersion] = useState<any>(null);
 
   useEffect(() => {
     if (!isLoading && savedPrompt != null && !initialized) {
@@ -156,9 +161,14 @@ export function PromptManager({ settingKey, title, placeholder }: PromptManagerP
                         </p>
                         <p className="text-sm font-mono truncate mt-1">{v.value.substring(0, 120)}...</p>
                       </div>
-                      <Button size="sm" variant="outline" onClick={() => handleRestore(v.value)}>
-                        <RotateCcw className="h-3 w-3 mr-1" /> Restaurar
-                      </Button>
+                      <div className="flex gap-1 shrink-0">
+                        <Button size="sm" variant="outline" onClick={() => setDiffVersion(v)}>
+                          <GitCompareArrows className="h-3 w-3 mr-1" /> Comparar
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => handleRestore(v.value)}>
+                          <RotateCcw className="h-3 w-3 mr-1" /> Restaurar
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -167,6 +177,27 @@ export function PromptManager({ settingKey, title, placeholder }: PromptManagerP
           </CollapsibleContent>
         </Card>
       </Collapsible>
+      <Dialog open={!!diffVersion} onOpenChange={(open) => !open && setDiffVersion(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>
+              Comparação: {diffVersion && new Date(diffVersion.created_at).toLocaleString("pt-BR")} vs Atual
+            </DialogTitle>
+            <DialogDescription>
+              Linhas com <span className="text-destructive font-mono">−</span> foram removidas, linhas com <span className="text-green-700 dark:text-green-400 font-mono">+</span> foram adicionadas.
+            </DialogDescription>
+          </DialogHeader>
+          {diffVersion && (
+            <DiffViewer oldText={diffVersion.value} newText={savedPrompt ?? ""} />
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDiffVersion(null)}>Fechar</Button>
+            <Button onClick={() => { handleRestore(diffVersion.value); setDiffVersion(null); }}>
+              <RotateCcw className="h-4 w-4" /> Restaurar esta versão
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
