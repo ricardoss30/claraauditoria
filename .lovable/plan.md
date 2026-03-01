@@ -1,40 +1,35 @@
 
 
-## Plano: Base de Conhecimento Vetorial (RAG) + Busca por Nome
+## Diagnóstico
 
-### 1. Criar Edge Function `embed-knowledge`
+Identifiquei dois problemas nos logs:
 
-Nova edge function `supabase/functions/embed-knowledge/index.ts` que:
-- Recebe `{ file_path: string, action: "upsert" | "delete" }`
-- Para **upsert**: baixa o arquivo do bucket `base_conhecimento`, extrai texto (PDF via `unpdf`, TXT direto, DOCX apenas referência), divide em chunks de ~500 caracteres com overlap de 50, gera embeddings via Lovable AI gateway (`text-embedding-3-small` ou modelo disponível), e insere na tabela `conhecimento_chunks`
-- Para **delete**: remove todos os chunks onde `file_path = path`
-- Antes de inserir novos chunks, deleta chunks existentes do mesmo `file_path` (idempotente)
+1. **Embeddings falhando** (`embed-knowledge`): O modelo AI retorna os embeddings envolvidos em ````json ... ````, e o `JSON.parse` falha com `Unexpected token`. Os 78 chunks do PDF foram extraídos mas nenhum embedding foi gerado. A tabela `conhecimento_chunks` está **vazia** (provavelmente o insert falhou ou a função não completou).
 
-### 2. Registrar edge function no `config.toml`
+2. **RAG sem dados** (`process-document`): Como não há chunks na tabela, a busca vetorial retorna vazio e o contexto da Base de Conhecimento não é usado.
 
-Adicionar `[functions.embed-knowledge]` com `verify_jwt = false`.
+## Plano de Correção
 
-### 3. Atualizar `Sources.tsx` — Chamar embedding após upload
+### 1. Corrigir parsing de embeddings em `embed-knowledge/index.ts`
 
-Após upload bem-sucedido, invocar `supabase.functions.invoke("embed-knowledge", { body: { file_path, action: "upsert" } })` para cada arquivo. Na exclusão, chamar com `action: "delete"`.
+Na função `generateEmbedding`, antes do `JSON.parse`, limpar markdown code fences do response:
+```typescript
+let content = data.choices?.[0]?.message?.content?.trim();
+// Strip markdown code fences
+content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+const parsed = JSON.parse(content);
+```
 
-### 4. Atualizar `process-document` — Usar RAG vetorial
+### 2. Aplicar mesma correção em `process-document/index.ts`
 
-Substituir `fetchKnowledgeBaseContext` (que lê arquivos brutos) por uma busca vetorial:
-- Gerar embedding do conteúdo do documento (resumo dos primeiros 2000 chars)
-- Chamar `match_knowledge` (função SQL já existente) para buscar os chunks mais relevantes
-- Montar o contexto a partir dos chunks retornados (até 15.000 chars)
+A função `fetchKnowledgeBaseContext` tem o mesmo problema na geração de embedding para query. Aplicar a mesma limpeza de markdown.
 
-### 5. Adicionar busca/filtro na UI `Sources.tsx`
+### 3. Corrigir o texto "Raiz" no breadcrumb
 
-- Input de busca acima da tabela com ícone `Search`
-- Filtrar `folders` e `realFiles` pelo `name` contendo o texto digitado (case-insensitive)
-- Debounce simples com estado local
+O edit anterior substituiu "Raiz" por `{"\n"}` que renderiza como espaço vazio. Trocar para um ícone Home ou o texto correto conforme a intenção do usuário.
 
 ### Arquivos
-- `supabase/functions/embed-knowledge/index.ts` (novo)
-- `supabase/config.toml` (adicionar função)
-- `src/pages/Sources.tsx` (chamar embedding + filtro de busca)
-- `src/services/knowledgeBaseService.ts` (adicionar `embedFile` e `deleteChunks` helpers)
-- `supabase/functions/process-document/index.ts` (substituir leitura bruta por RAG)
+- `supabase/functions/embed-knowledge/index.ts` (corrigir parsing)
+- `supabase/functions/process-document/index.ts` (corrigir parsing)
+- Deploy das duas edge functions
 
