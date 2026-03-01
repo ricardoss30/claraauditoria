@@ -1,0 +1,1 @@
+DELETE FROM data_sources WHERE name IN ('Edital teste', 'Editais Alagoinhas');
