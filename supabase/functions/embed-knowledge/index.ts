@@ -11,6 +11,7 @@ const corsHeaders = {
 const BUCKET = "base_conhecimento";
 const CHUNK_SIZE = 500;
 const CHUNK_OVERLAP = 50;
+const MAX_EMBEDDING_TIME_MS = 45000; // Stop trying embeddings after 45s to stay under 60s timeout
 
 function splitIntoChunks(text: string): string[] {
   const chunks: string[] = [];
@@ -130,35 +131,62 @@ serve(async (req) => {
     const chunks = splitIntoChunks(text);
     console.log(`Extracted ${text.length} chars, split into ${chunks.length} chunks from ${file_path}`);
 
-    // Generate embeddings and insert chunks
-    const rows = [];
-    for (const chunk of chunks) {
-      let embedding: number[] | null = null;
-      if (lovableApiKey) {
-        embedding = await generateEmbedding(chunk, lovableApiKey);
-      }
-
-      rows.push({
-        file_path,
-        file_name: fileName,
-        content: chunk,
-        embedding: embedding ? `[${embedding.join(",")}]` : null,
-      });
-    }
+    // STEP 1: Insert all chunks WITHOUT embeddings first (guarantees data availability for RAG fallback)
+    const rows = chunks.map((chunk) => ({
+      file_path,
+      file_name: fileName,
+      content: chunk,
+      embedding: null,
+    }));
 
     // Insert in batches of 50
+    const insertedIds: number[] = [];
     for (let i = 0; i < rows.length; i += 50) {
       const batch = rows.slice(i, i + 50);
-      const { error: insertErr } = await supabase.from("conhecimento_chunks").insert(batch);
+      const { data: inserted, error: insertErr } = await supabase
+        .from("conhecimento_chunks")
+        .insert(batch)
+        .select("id");
       if (insertErr) {
         console.error("Insert chunks error:", insertErr);
         throw new Error(`Failed to insert chunks: ${insertErr.message}`);
       }
+      if (inserted) insertedIds.push(...inserted.map((r: any) => r.id));
     }
 
-    console.log(`Successfully embedded ${rows.length} chunks for ${file_path}`);
+    console.log(`Successfully inserted ${insertedIds.length} chunks (without embeddings) for ${file_path}`);
+
+    // STEP 2: Try to generate embeddings for each chunk, with time budget
+    let embeddingsGenerated = 0;
+    if (lovableApiKey && insertedIds.length > 0) {
+      const startTime = Date.now();
+
+      for (let i = 0; i < chunks.length; i++) {
+        // Check time budget
+        if (Date.now() - startTime > MAX_EMBEDDING_TIME_MS) {
+          console.log(`Time budget exceeded after ${i} chunks, stopping embedding generation`);
+          break;
+        }
+
+        const embedding = await generateEmbedding(chunks[i], lovableApiKey);
+        if (embedding && insertedIds[i]) {
+          const { error: updateErr } = await supabase
+            .from("conhecimento_chunks")
+            .update({ embedding: `[${embedding.join(",")}]` })
+            .eq("id", insertedIds[i]);
+
+          if (!updateErr) {
+            embeddingsGenerated++;
+          } else {
+            console.warn(`Failed to update embedding for chunk ${insertedIds[i]}:`, updateErr);
+          }
+        }
+      }
+    }
+
+    console.log(`Successfully processed ${file_path}: ${insertedIds.length} chunks inserted, ${embeddingsGenerated} with embeddings`);
     return new Response(
-      JSON.stringify({ success: true, chunks: rows.length, file_path }),
+      JSON.stringify({ success: true, chunks: insertedIds.length, embeddings: embeddingsGenerated, file_path }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
