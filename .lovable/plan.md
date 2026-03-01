@@ -1,54 +1,33 @@
 
 
-## Plano: Transformar "Fontes de Dados" em Gerenciador de Base de Conhecimento
+## Plano: Integrar Base de Conhecimento na Análise + Preview Inline
 
-### 1. Deletar fontes existentes do banco
+### 1. Atualizar Edge Function `process-document/index.ts`
 
-Executar SQL para remover "Edital teste" e "Editais Alagoinhas" da tabela `data_sources`.
+Adicionar etapa que busca arquivos relevantes do bucket `base_conhecimento` antes de chamar a IA:
+- Listar recursivamente todos os arquivos do bucket (excluindo `.emptyFolderPlaceholder`)
+- Para cada arquivo TXT: baixar e extrair conteúdo textual
+- Para cada arquivo PDF: extrair texto via `unpdf`
+- Arquivos DOCX: incluir apenas o nome como referência (extração complexa demais para edge)
+- Concatenar todo o conteúdo extraído como "Contexto da Base de Conhecimento" no system prompt, limitado a ~15.000 caracteres
+- Inserir esse contexto entre as regras ativas e antes da mensagem do usuário
 
-### 2. Criar `src/services/knowledgeBaseService.ts`
+### 2. Adicionar Preview Inline em `Sources.tsx`
 
-Serviço conforme especificado pelo usuário com funções:
-- `uploadFile(file, path)` — upload com upsert
-- `listFiles(folder)` — listar arquivos/pastas
-- `getFileUrl(path)` — URL assinada (1h)
-- `deleteFile(path)` — remover arquivo
-- `createFolder(path)` — criar pasta (upload de `.emptyFolderPlaceholder`)
-- `deleteFolder(path)` — listar e remover todos arquivos da pasta
+- Adicionar estado `previewFile: { name: string; url: string; type: string } | null`
+- Botão "Visualizar" (ícone `Eye`) ao lado de Download para arquivos PDF e TXT
+- Dialog de preview com:
+  - **PDF**: `<iframe>` apontando para a signed URL com largura/altura totais
+  - **TXT**: Fetch do conteúdo via signed URL e exibir em `<pre>` com scroll, fonte mono
+  - **DOCX**: Sem preview (badge "Preview não disponível")
+- Header do dialog mostra o nome do arquivo
 
-### 3. Criar `src/hooks/useKnowledgeBase.ts`
+### 3. Criar função auxiliar no service
 
-Hook React Query para:
-- `useFiles(folder)` — query que lista arquivos na pasta atual
-- `uploadMutation` — upload de arquivo
-- `deleteMutation` — remover arquivo
-- `createFolderMutation` — criar pasta
-- `deleteFolderMutation` — remover pasta
-- Invalidação automática de queries após mutations
-
-### 4. Reescrever `src/pages/Sources.tsx`
-
-Substituir completamente a página atual por um gerenciador de arquivos:
-- **Header**: Título "Base de Conhecimento" + botões "Nova Pasta" e "Upload Arquivo"
-- **Breadcrumb**: Navegação por caminho de pastas (ex: `/ > contratos > 2024`)
-- **Lista**: Tabela com colunas Nome, Tipo, Tamanho, Data — pastas primeiro, depois arquivos
-- **Ações por item**: Download (arquivos), Excluir
-- **Dialog Upload**: Aceita PDF, TXT, DOCX com drag-and-drop
-- **Dialog Nova Pasta**: Input para nome da pasta
-- **Filtro de tipos**: Badge para PDF/TXT/DOCX
-
-### 5. Atualizar `src/components/layout/AppSidebar.tsx`
-
-Renomear item "Fontes de Dados" para "Base de Conhecimento" no menu (manter rota `/sources`).
-
-### 6. Configurar RLS no bucket `base_conhecimento`
-
-Migration SQL para adicionar políticas de storage permitindo usuários autenticados fazerem upload, leitura e exclusão.
+Adicionar `listAllFiles(folder)` recursiva em `knowledgeBaseService.ts` para a edge function poder listar todos os arquivos do bucket de forma flat.
 
 ### Arquivos
-- Migration SQL (delete data_sources + storage policies)
-- `src/services/knowledgeBaseService.ts` (novo)
-- `src/hooks/useKnowledgeBase.ts` (novo)
-- `src/pages/Sources.tsx` (reescrito)
-- `src/components/layout/AppSidebar.tsx` (renomear label)
+- `supabase/functions/process-document/index.ts` (editado — adicionar fetch de base de conhecimento)
+- `src/services/knowledgeBaseService.ts` (adicionar `listAllFiles`)
+- `src/pages/Sources.tsx` (adicionar botão preview + dialog com iframe/pre)
 
