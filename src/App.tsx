@@ -16,6 +16,10 @@ import Settings from "./pages/Settings";
 import DocumentDetail from "./pages/DocumentDetail";
 import AuditLogs from "./pages/AuditLogs";
 import NotFound from "./pages/NotFound";
+import UsersManagement from "./pages/settings/UsersManagement";
+import AgentPrompt from "./pages/settings/AgentPrompt";
+import UserPrompt from "./pages/settings/UserPrompt";
+import StructuredOutput from "./pages/settings/StructuredOutput";
 
 const queryClient = new QueryClient();
 
@@ -35,7 +39,12 @@ const App = () => (
               <Route path="/alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
               <Route path="/rules" element={<ProtectedRoute><Rules /></ProtectedRoute>} />
               <Route path="/sources" element={<ProtectedRoute><Sources /></ProtectedRoute>} />
-              <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>}>
+                <Route path="users" element={<UsersManagement />} />
+                <Route path="prompts/agent" element={<AgentPrompt />} />
+                <Route path="prompts/user" element={<UserPrompt />} />
+                <Route path="prompts/structured-output" element={<StructuredOutput />} />
+              </Route>
               <Route path="/audit" element={<ProtectedRoute><AuditLogs /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
