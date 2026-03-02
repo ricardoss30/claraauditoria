@@ -10,14 +10,6 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
 
-const mainItems = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Documentos", url: "/documents", icon: FileText },
-  { title: "Alertas", url: "/alerts", icon: AlertTriangle },
-  { title: "Regras", url: "/rules", icon: Shield },
-  { title: "Base de Conhecimento", url: "/sources", icon: Database },
-];
-
 const promptItems = [
   { title: "Prompt do Agente", url: "/settings/prompts/agent", icon: Bot },
   { title: "Prompt do Usuário", url: "/settings/prompts/user", icon: User },
@@ -32,6 +24,22 @@ export function AppSidebar() {
   const location = useLocation();
   const isSettingsActive = location.pathname.startsWith("/settings");
   const isPromptActive = location.pathname.startsWith("/settings/prompts");
+
+  const isAdmin = hasRole("admin");
+  const isGestor = hasRole("gestor");
+  const isAuditor = hasRole("auditor");
+  const canAccessSettings = hasAnyRole(["admin", "gestor"]);
+  const canAccessKnowledge = hasAnyRole(["admin", "gestor"]);
+  const canAccessAudit = hasAnyRole(["admin", "gestor"]);
+
+  // Build main items dynamically based on role
+  const mainItems = [
+    { title: "Dashboard", url: "/", icon: LayoutDashboard },
+    { title: "Documentos", url: "/documents", icon: FileText },
+    { title: "Alertas", url: "/alerts", icon: AlertTriangle },
+    { title: "Regras", url: "/rules", icon: Shield },
+    ...(canAccessKnowledge ? [{ title: "Base de Conhecimento", url: "/sources", icon: Database }] : []),
+  ];
 
   return (
     <Sidebar>
@@ -55,7 +63,7 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
-              {hasAnyRole(["admin", "auditor"]) && (
+              {canAccessAudit && (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
                     <NavLink to="/audit" className={linkClass} activeClassName={activeClass}>
@@ -69,7 +77,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {hasRole("admin") && (
+        {canAccessSettings && (
           <SidebarGroup>
             <Collapsible defaultOpen={isSettingsActive}>
               <CollapsibleTrigger className="flex w-full items-center justify-between px-4 py-2 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/70 hover:text-sidebar-foreground">
@@ -88,29 +96,31 @@ export function AppSidebar() {
                       </SidebarMenuButton>
                     </SidebarMenuItem>
 
-                    {/* Nested collapsible for prompts */}
-                    <li>
-                      <Collapsible defaultOpen={isPromptActive}>
-                        <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
-                          <span className="flex items-center gap-2"><Bot className="h-4 w-4" /> Gerenciamento de Prompt</span>
-                          <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-data-[state=open]:rotate-90" />
-                        </CollapsibleTrigger>
-                        <CollapsibleContent>
-                          <SidebarMenu className="ml-4 border-l border-sidebar-border pl-2">
-                            {promptItems.map((item) => (
-                              <SidebarMenuItem key={item.title}>
-                                <SidebarMenuButton asChild>
-                                  <NavLink to={item.url} className={linkClass} activeClassName={activeClass}>
-                                    <item.icon className="h-4 w-4" />
-                                    <span>{item.title}</span>
-                                  </NavLink>
-                                </SidebarMenuButton>
-                              </SidebarMenuItem>
-                            ))}
-                          </SidebarMenu>
-                        </CollapsibleContent>
-                      </Collapsible>
-                    </li>
+                    {/* Prompt management - admin only */}
+                    {isAdmin && (
+                      <li>
+                        <Collapsible defaultOpen={isPromptActive}>
+                          <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+                            <span className="flex items-center gap-2"><Bot className="h-4 w-4" /> Gerenciamento de Prompt</span>
+                            <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-data-[state=open]:rotate-90" />
+                          </CollapsibleTrigger>
+                          <CollapsibleContent>
+                            <SidebarMenu className="ml-4 border-l border-sidebar-border pl-2">
+                              {promptItems.map((item) => (
+                                <SidebarMenuItem key={item.title}>
+                                  <SidebarMenuButton asChild>
+                                    <NavLink to={item.url} className={linkClass} activeClassName={activeClass}>
+                                      <item.icon className="h-4 w-4" />
+                                      <span>{item.title}</span>
+                                    </NavLink>
+                                  </SidebarMenuButton>
+                                </SidebarMenuItem>
+                              ))}
+                            </SidebarMenu>
+                          </CollapsibleContent>
+                        </Collapsible>
+                      </li>
+                    )}
                   </SidebarMenu>
                 </SidebarGroupContent>
               </CollapsibleContent>

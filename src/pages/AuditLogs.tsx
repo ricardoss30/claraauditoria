@@ -24,11 +24,11 @@ export default function AuditLogs() {
   const { hasAnyRole } = useAuth();
   const { data, isLoading, actionFilter, setActionFilter, resourceFilter, setResourceFilter, page, setPage, pageSize } = useAuditLogs();
 
-  if (!hasAnyRole(["admin", "auditor"])) {
+  if (!hasAnyRole(["admin", "gestor"])) {
     return (
       <AppLayout>
         <div className="flex items-center justify-center h-64">
-          <p className="text-muted-foreground">Acesso restrito a administradores e auditores.</p>
+          <p className="text-muted-foreground">Acesso restrito a administradores e gestores.</p>
         </div>
       </AppLayout>
     );
