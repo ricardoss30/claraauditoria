@@ -1,28 +1,34 @@
 
 
-## Plano: Botão "Novo Usuário" com CRUD no UsersManagement
+## Plano: Editar e Excluir Usuários na Gestão de Usuários
 
-### O que será feito
-Adicionar um botão "Novo Usuário" no header do card de Gestão de Usuários que abre um Dialog para criar usuários via `supabase.auth.admin` (edge function). Visível apenas para Admin e Gestor, respeitando as regras RBAC.
+### 1. Edge Function `manage-user`
 
-### 1. Edge Function `create-user`
-Criar `supabase/functions/create-user/index.ts` que:
-- Recebe `email`, `password`, `full_name`, `role` no body
-- Verifica que o chamador é admin ou gestor (via JWT)
-- Se gestor, impede criação com role "admin"
-- Usa `supabase.auth.admin.createUser()` com o service role key para criar o usuário
-- Insere o role na tabela `user_roles`
-- Retorna sucesso ou erro
+Criar `supabase/functions/manage-user/index.ts` com duas ações:
 
-### 2. Dialog "Novo Usuário" no `UsersManagement.tsx`
-- Adicionar botão "Novo Usuário" ao lado do título do card (visível para admin e gestor)
-- Dialog com campos: Nome completo, Email, Senha, Role (select)
-  - Admin vê opções: admin, gestor, auditor
-  - Gestor vê apenas: gestor, auditor
-- Submit chama a edge function `create-user`
-- On success: fecha dialog, invalida query "users", toast de sucesso
+- **`update`**: Recebe `user_id`, `email` (opcional), `full_name` (opcional). Usa `supabaseAdmin.auth.admin.updateUserById()` para atualizar email e `profiles` para nome.
+- **`delete`**: Recebe `user_id`. Usa `supabaseAdmin.auth.admin.deleteUser()` para remover o usuário do Auth (cascade deleta profile e roles).
 
-### 3. Arquivos
-- **Criar**: `supabase/functions/create-user/index.ts`
-- **Editar**: `src/pages/settings/UsersManagement.tsx` — adicionar botão, dialog e lógica de criação
+Validações server-side:
+- Somente admin ou gestor pode chamar
+- Gestor não pode editar/excluir admins
+- Ninguém pode excluir a si mesmo
+
+### 2. UI em `UsersManagement.tsx`
+
+- Adicionar no dropdown de ações (coluna "Ações"):
+  - **Editar usuário**: abre Dialog com campos Nome e Email preenchidos, salva via edge function
+  - **Excluir usuário**: abre AlertDialog de confirmação, exclui via edge function
+- Visibilidade: mesma lógica de `canEditUser` e `canManageRoles` já existente
+- Gestor não vê opção de editar/excluir admins (já filtrados)
+- Ninguém pode excluir a si mesmo
+
+### 3. Config
+
+- Registrar `manage-user` no `supabase/config.toml`
+
+### Arquivos
+
+- **Criar**: `supabase/functions/manage-user/index.ts`
+- **Editar**: `src/pages/settings/UsersManagement.tsx`, `supabase/config.toml`
 
