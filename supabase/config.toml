@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.embed-knowledge]
 verify_jwt = false
+
+[functions.create-user]
+verify_jwt = false
