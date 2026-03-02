@@ -41,6 +41,7 @@ export default function UsersManagement() {
   const [editUserId, setEditUserId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [editPassword, setEditPassword] = useState("");
   const [saving, setSaving] = useState(false);
 
   // Delete user dialog state
@@ -105,6 +106,7 @@ export default function UsersManagement() {
     setEditUserId(u.user_id);
     setEditName(u.full_name ?? "");
     setEditEmail(u.email ?? "");
+    setEditPassword("");
     setEditDialogOpen(true);
   };
 
@@ -112,9 +114,9 @@ export default function UsersManagement() {
     if (!editUserId) return;
     setSaving(true);
     try {
-      const { data: result, error } = await supabase.functions.invoke("manage-user", {
-        body: { action: "update", user_id: editUserId, full_name: editName, email: editEmail },
-      });
+      const body: Record<string, string> = { action: "update", user_id: editUserId, full_name: editName, email: editEmail };
+      if (editPassword) body.password = editPassword;
+      const { data: result, error } = await supabase.functions.invoke("manage-user", { body });
       if (error) throw error;
       if (result?.error) throw new Error(result.error);
       toast.success("Usuário atualizado com sucesso");
@@ -322,6 +324,10 @@ export default function UsersManagement() {
             <div className="space-y-2">
               <Label htmlFor="edit-email">Email</Label>
               <Input id="edit-email" type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} placeholder="email@exemplo.com" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="edit-password">Nova senha</Label>
+              <Input id="edit-password" type="password" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} placeholder="Deixe em branco para manter a atual" />
             </div>
           </div>
           <DialogFooter>
