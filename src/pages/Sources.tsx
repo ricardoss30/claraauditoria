@@ -49,12 +49,12 @@ export default function Sources() {
   const [folderName, setFolderName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const [previewFile, setPreviewFile] = useState<{ name: string; url: string; type: string } | null>(null);
 
-  // Separate folders and files, hide placeholders
   const allFolders = files.filter((f) => f.id === null && f.name !== ".emptyFolderPlaceholder");
   const allRealFiles = files.filter((f) => f.id !== null && f.name !== ".emptyFolderPlaceholder");
 
-  // Apply search filter
   const folders = useMemo(() => {
     if (!searchQuery.trim()) return allFolders;
     const q = searchQuery.toLowerCase();
@@ -66,6 +66,17 @@ export default function Sources() {
     const q = searchQuery.toLowerCase();
     return allRealFiles.filter((f) => f.name.toLowerCase().includes(q));
   }, [allRealFiles, searchQuery]);
+
+  // Block access for auditors
+  if (!canManage) {
+    return (
+      <AppLayout>
+        <div className="flex items-center justify-center h-64">
+          <p className="text-muted-foreground">Acesso restrito a administradores e gestores.</p>
+        </div>
+      </AppLayout>
+    );
+  }
 
   const navigateToFolder = (name: string) => setCurrentPath((prev) => [...prev, name]);
   const navigateToBreadcrumb = (index: number) => setCurrentPath((prev) => prev.slice(0, index));
@@ -86,7 +97,6 @@ export default function Sources() {
       .then(async () => {
         toast.success(`${validFiles.length} arquivo(s) enviado(s)`);
         setUploadOpen(false);
-        // Trigger embedding for each uploaded file
         for (const file of validFiles) {
           const path = folder ? `${folder}/${file.name}` : file.name;
           embedFile(path, "upsert").catch((e) => console.error("Embed failed:", e));
@@ -130,9 +140,6 @@ export default function Sources() {
     else toast.error("Erro ao gerar link de download");
   };
 
-  const [dragOver, setDragOver] = useState(false);
-  const [previewFile, setPreviewFile] = useState<{ name: string; url: string; type: string } | null>(null);
-
   const handlePreview = async (name: string) => {
     const ext = name.split(".").pop()?.toLowerCase() ?? "";
     if (!["pdf", "txt"].includes(ext)) return;
@@ -141,34 +148,26 @@ export default function Sources() {
     if (url) setPreviewFile({ name, url, type: ext });
     else toast.error("Erro ao gerar link de preview");
   };
+
   return (
     <AppLayout>
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold">Base de Conhecimento</h1>
-          {canManage && (
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setFolderOpen(true)}>
-                <FolderPlus className="h-4 w-4 mr-2" />Nova Pasta
-              </Button>
-              <Button onClick={() => setUploadOpen(true)}>
-                <Upload className="h-4 w-4 mr-2" />Upload Arquivo
-              </Button>
-            </div>
-          )}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setFolderOpen(true)}>
+              <FolderPlus className="h-4 w-4 mr-2" />Nova Pasta
+            </Button>
+            <Button onClick={() => setUploadOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />Upload Arquivo
+            </Button>
+          </div>
         </div>
 
-        {/* Search + Breadcrumb */}
         <div className="flex items-center gap-4">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Buscar arquivos..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
+            <Input placeholder="Buscar arquivos..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9" />
           </div>
         </div>
 
@@ -196,7 +195,6 @@ export default function Sources() {
           </BreadcrumbList>
         </Breadcrumb>
 
-        {/* File list */}
         {isLoading ? (
           <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
         ) : folders.length === 0 && realFiles.length === 0 ? (
@@ -217,30 +215,24 @@ export default function Sources() {
                 {folders.map((f) => (
                   <TableRow key={f.name} className="cursor-pointer" onClick={() => navigateToFolder(f.name)}>
                     <TableCell className="flex items-center gap-2 font-medium">
-                      <Folder className="h-4 w-4 text-muted-foreground" />
-                      {f.name}
+                      <Folder className="h-4 w-4 text-muted-foreground" />{f.name}
                     </TableCell>
                     <TableCell><Badge variant="outline">Pasta</Badge></TableCell>
                     <TableCell>—</TableCell>
                     <TableCell>—</TableCell>
                     <TableCell className="text-right">
-                      {canManage && (
-                        <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); handleDelete(f.name, true); }}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      )}
+                      <Button size="icon" variant="ghost" onClick={(e) => { e.stopPropagation(); handleDelete(f.name, true); }}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
                 {realFiles.map((f) => (
                   <TableRow key={f.name}>
                     <TableCell className="flex items-center gap-2 font-medium">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      {f.name}
+                      <FileText className="h-4 w-4 text-muted-foreground" />{f.name}
                     </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">{getFileExtension(f.name)}</Badge>
-                    </TableCell>
+                    <TableCell><Badge variant="secondary">{getFileExtension(f.name)}</Badge></TableCell>
                     <TableCell className="text-muted-foreground text-xs">{formatBytes((f.metadata as any)?.size ?? 0)}</TableCell>
                     <TableCell className="text-muted-foreground text-xs">
                       {f.updated_at ? new Date(f.updated_at).toLocaleDateString("pt-BR") : "—"}
@@ -248,18 +240,10 @@ export default function Sources() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         {["pdf", "txt"].includes(getFileExtension(f.name).toLowerCase()) && (
-                          <Button size="icon" variant="ghost" onClick={() => handlePreview(f.name)}>
-                            <Eye className="h-4 w-4" />
-                          </Button>
+                          <Button size="icon" variant="ghost" onClick={() => handlePreview(f.name)}><Eye className="h-4 w-4" /></Button>
                         )}
-                        <Button size="icon" variant="ghost" onClick={() => handleDownload(f.name)}>
-                          <Download className="h-4 w-4" />
-                        </Button>
-                        {canManage && (
-                          <Button size="icon" variant="ghost" onClick={() => handleDelete(f.name, false)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        )}
+                        <Button size="icon" variant="ghost" onClick={() => handleDownload(f.name)}><Download className="h-4 w-4" /></Button>
+                        <Button size="icon" variant="ghost" onClick={() => handleDelete(f.name, false)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -269,7 +253,6 @@ export default function Sources() {
           </div>
         )}
 
-        {/* Upload Dialog */}
         <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
           <DialogContent>
             <DialogHeader><DialogTitle>Upload de Arquivo</DialogTitle></DialogHeader>
@@ -290,21 +273,16 @@ export default function Sources() {
           </DialogContent>
         </Dialog>
 
-        {/* New Folder Dialog */}
         <Dialog open={folderOpen} onOpenChange={setFolderOpen}>
           <DialogContent>
             <DialogHeader><DialogTitle>Nova Pasta</DialogTitle></DialogHeader>
-            <div>
-              <Label>Nome da pasta</Label>
-              <Input value={folderName} onChange={(e) => setFolderName(e.target.value)} placeholder="Ex: contratos-2024" />
-            </div>
+            <div><Label>Nome da pasta</Label><Input value={folderName} onChange={(e) => setFolderName(e.target.value)} placeholder="Ex: contratos-2024" /></div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setFolderOpen(false)}>Cancelar</Button>
               <Button onClick={handleCreateFolder} disabled={!folderName.trim() || createFolderMutation.isPending}>Criar</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
-        {/* File Preview Dialog */}
         <FilePreviewDialog file={previewFile} onClose={() => setPreviewFile(null)} />
       </div>
     </AppLayout>

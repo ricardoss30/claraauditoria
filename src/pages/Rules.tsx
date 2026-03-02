@@ -23,8 +23,8 @@ const defaultForm = { name: "", description: "", category: "sobrepreco", rule_ty
 
 export default function Rules() {
   const { data, isLoading, toggleActive, upsertRule, deleteRule } = useRules();
-  const { hasRole } = useAuth();
-  const isAdmin = hasRole("admin");
+  const { hasAnyRole } = useAuth();
+  const canManage = hasAnyRole(["admin", "gestor"]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<any>(defaultForm);
   const [editId, setEditId] = useState<string | null>(null);
@@ -51,7 +51,7 @@ export default function Rules() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold">Regras de Risco</h1>
-          {isAdmin && <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Nova Regra</Button>}
+          {canManage && <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Nova Regra</Button>}
         </div>
 
         {isLoading ? (
@@ -67,7 +67,7 @@ export default function Rules() {
                     <CardTitle className="text-base">{rule.name}</CardTitle>
                     {rule.description && <CardDescription className="text-sm">{rule.description}</CardDescription>}
                   </div>
-                  {isAdmin && (
+                  {canManage && (
                     <Switch checked={rule.is_active} onCheckedChange={(checked) => toggleActive.mutate({ id: rule.id, is_active: checked })} />
                   )}
                 </CardHeader>
@@ -78,7 +78,7 @@ export default function Rules() {
                     {!rule.is_active && <Badge variant="destructive">Inativa</Badge>}
                   </div>
                   <SeverityIndicator severity={rule.severity} />
-                  {isAdmin && (
+                  {canManage && (
                     <div className="flex gap-2 pt-2">
                       <Button size="sm" variant="outline" onClick={() => openEdit(rule)}>
                         <Pencil className="h-3 w-3 mr-1" /> Editar

@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { AdminOnlyRoute } from "@/components/AdminOnlyRoute";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Documents from "./pages/Documents";
@@ -41,9 +42,9 @@ const App = () => (
               <Route path="/sources" element={<ProtectedRoute><Sources /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>}>
                 <Route path="users" element={<UsersManagement />} />
-                <Route path="prompts/agent" element={<AgentPrompt />} />
-                <Route path="prompts/user" element={<UserPrompt />} />
-                <Route path="prompts/structured-output" element={<StructuredOutput />} />
+                <Route path="prompts/agent" element={<AdminOnlyRoute><AgentPrompt /></AdminOnlyRoute>} />
+                <Route path="prompts/user" element={<AdminOnlyRoute><UserPrompt /></AdminOnlyRoute>} />
+                <Route path="prompts/structured-output" element={<AdminOnlyRoute><StructuredOutput /></AdminOnlyRoute>} />
               </Route>
               <Route path="/audit" element={<ProtectedRoute><AuditLogs /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
