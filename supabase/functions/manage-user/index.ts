@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Permissão negada" }), { status: 403, headers: corsHeaders });
     }
 
-    const { action, user_id, email, full_name } = await req.json();
+    const { action, user_id, email, full_name, password } = await req.json();
 
     if (!action || !user_id) {
       return new Response(JSON.stringify({ error: "action e user_id são obrigatórios" }), { status: 400, headers: corsHeaders });
@@ -66,9 +66,12 @@ Deno.serve(async (req) => {
     }
 
     if (action === "update") {
-      // Update email in Auth if provided
-      if (email) {
-        const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(user_id, { email });
+      // Update auth fields (email and/or password) if provided
+      const authUpdate: Record<string, string> = {};
+      if (email) authUpdate.email = email;
+      if (password) authUpdate.password = password;
+      if (Object.keys(authUpdate).length > 0) {
+        const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(user_id, authUpdate);
         if (authError) throw authError;
       }
       // Update full_name in profiles if provided
