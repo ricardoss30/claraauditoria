@@ -1,49 +1,78 @@
 
 
-## Correção dos avisos de segurança RLS e funções
-
-### Problemas detectados pelo linter
-
-**1. RLS Policy Always True (2 avisos)**
-- **`conhecimento_chunks`** — política "Service role can manage chunks" (ALL) com `USING (true)` e `WITH CHECK (true)`, aplicada a **todos os roles** (`public`). Qualquer usuário autenticado pode inserir, atualizar e deletar chunks. Na prática, apenas edge functions (via service_role, que já ignora RLS) precisam dessa permissão.
-- **`text_analysis_cache`** — política "Service role can insert cache" (INSERT) com `WITH CHECK (true)`, aplicada a todos os roles. Mesmo cenário: apenas edge functions inserem dados de cache.
-
-**2. Function Search Path Mutable (2 avisos)**
-- Funções `match_knowledge` e `match_conhecimento_chunks` não têm `search_path` definido, o que pode permitir ataques de path hijacking.
-
-**3. Extension in Public (1 aviso)**
-- A extensão `vector` está instalada no schema `public`. Mover extensões para outro schema é complexo e pode quebrar funcionalidades existentes — recomendo ignorar este aviso.
-
-**4. Leaked Password Protection Disabled (1 aviso)**
-- Configuração do painel Supabase, não corrigível via migração SQL.
+## Plano de Implementacao - Itens 3.3 e 3.4
 
 ---
 
-### Correções via migração SQL
+### 3.3. Exportacao de Relatorios Consolidados
 
-**Migração única** com as seguintes alterações:
+**Nova pagina `/reports`** com formulario para gerar relatorio consolidado por periodo.
 
-1. **Dropar** a política "Service role can manage chunks" na tabela `conhecimento_chunks` (service_role já ignora RLS; remover elimina acesso indevido a outros roles)
+**Componentes:**
+1. **`src/pages/ConsolidatedReport.tsx`** - Pagina com:
+   - Seletores de periodo (mes/trimestre/personalizado) usando date pickers
+   - Filtros opcionais por orgao e modalidade
+   - Botao "Gerar Relatorio" que consulta dados agregados
+   - Visualizacao do relatorio com secoes: resumo executivo, metricas, top alertas, documentos analisados
+   - Botoes de exportacao CSV e PDF (impressao via `window.print()`)
 
-2. **Dropar** a política "Service role can insert cache" na tabela `text_analysis_cache` (mesma lógica)
+2. **`src/hooks/useConsolidatedReport.ts`** - Hook que:
+   - Busca `procurement_documents` filtrados por `created_at` no periodo
+   - Busca `risk_alerts` associados aos documentos do periodo
+   - Calcula metricas agregadas: total de docs, score medio, distribuicao por status/modalidade/orgao, total de alertas por severidade
 
-3. **Alterar** as funções `match_knowledge` e `match_conhecimento_chunks` para definir `SET search_path = public`
+3. **Atualizacoes:**
+   - `App.tsx`: rota `/reports`
+   - `AppSidebar.tsx`: item "Relatorios" no menu
+   - `useExport.ts`: nova funcao `exportConsolidatedPDF()` que gera HTML com todas as secoes
 
-```sql
--- 1. Remove overly permissive policies (service_role bypasses RLS anyway)
-DROP POLICY IF EXISTS "Service role can manage chunks" ON public.conhecimento_chunks;
-DROP POLICY IF EXISTS "Service role can insert cache" ON public.text_analysis_cache;
+**Nao requer migracao SQL** - usa tabelas existentes com queries agregadas.
 
--- 2. Fix function search_path
-ALTER FUNCTION public.match_knowledge(vector, integer) SET search_path = public;
-ALTER FUNCTION public.match_conhecimento_chunks(vector, integer, jsonb) SET search_path = public;
-```
+---
 
-### O que NÃO será alterado
-- **Extension in Public**: mover `pgvector` quebraria referências existentes. Risco maior que o benefício.
-- **Leaked Password Protection**: configuração do painel Auth do Supabase, fora do escopo de migrações.
+### 3.4. Integracao com APIs de Dados Publicos (PNCP)
 
-### Impacto
-- Nenhuma funcionalidade será afetada, pois as edge functions usam `service_role` key que já ignora RLS.
-- Usuários regulares mantêm acesso de leitura via as políticas SELECT existentes.
+A API do PNCP (Portal Nacional de Contratacoes Publicas) e publica e gratuita: `https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao`
+
+**Componentes:**
+
+1. **Edge Function `supabase/functions/import-pncp/index.ts`**:
+   - Recebe parametros: `dataInicial`, `dataFinal`, `codigoModalidadeContratacao` (opcional), `uf` (opcional), `pagina`
+   - Chama a API publica do PNCP (nao requer chave de API)
+   - Retorna resultados formatados para o frontend
+   - Endpoint de importacao: recebe lista de IDs selecionados, busca detalhes e cria `procurement_documents` com status `pending`, depois invoca `process-document`
+
+2. **`src/pages/ImportPNCP.tsx`** - Pagina de importacao com:
+   - Filtros: periodo, UF, modalidade
+   - Botao "Buscar" que lista editais encontrados em tabela
+   - Checkboxes para selecionar quais importar
+   - Botao "Importar Selecionados" que cria documentos e dispara processamento
+   - Indicador de status (importando/processando)
+
+3. **`src/hooks/useImportPNCP.ts`** - Hook com:
+   - Query para busca na API via edge function
+   - Mutation para importacao dos selecionados
+
+4. **Atualizacoes:**
+   - `App.tsx`: rota `/import`
+   - `AppSidebar.tsx`: item "Importar Editais" no menu
+   - `supabase/config.toml`: registro da nova function
+
+**Nao requer migracao SQL** - usa `procurement_documents` existente. O campo `external_id` ja existe para controle de duplicatas.
+
+---
+
+### Resumo de Arquivos
+
+| Acao | Arquivo |
+|------|---------|
+| Criar | `src/pages/ConsolidatedReport.tsx` |
+| Criar | `src/hooks/useConsolidatedReport.ts` |
+| Criar | `supabase/functions/import-pncp/index.ts` |
+| Criar | `src/pages/ImportPNCP.tsx` |
+| Criar | `src/hooks/useImportPNCP.ts` |
+| Editar | `src/App.tsx` (2 rotas) |
+| Editar | `src/components/layout/AppSidebar.tsx` (2 itens menu) |
+| Editar | `src/hooks/useExport.ts` (funcao consolidada) |
+| Editar | `supabase/config.toml` (import-pncp) |
 
