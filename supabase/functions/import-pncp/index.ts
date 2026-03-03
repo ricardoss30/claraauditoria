@@ -76,13 +76,20 @@ Deno.serve(async (req) => {
 async function handleSearch(params: any, cors: Record<string, string>) {
   const { dataInicial, dataFinal, uf, codigoModalidadeContratacao, pagina = 1 } = params;
 
+  if (!codigoModalidadeContratacao) {
+    return new Response(
+      JSON.stringify({ error: "O campo 'Modalidade' é obrigatório para buscar no PNCP." }),
+      { status: 400, headers: { ...cors, "Content-Type": "application/json" } }
+    );
+  }
+
   const url = new URL("https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao");
   url.searchParams.set("dataInicial", dataInicial);
   url.searchParams.set("dataFinal", dataFinal);
   url.searchParams.set("pagina", String(pagina));
   url.searchParams.set("tamanhoPagina", "20");
+  url.searchParams.set("codigoModalidadeContratacao", codigoModalidadeContratacao);
   if (uf && uf !== "all") url.searchParams.set("uf", uf);
-  if (codigoModalidadeContratacao) url.searchParams.set("codigoModalidadeContratacao", codigoModalidadeContratacao);
 
   console.log("PNCP search URL:", url.toString());
 
@@ -94,18 +101,18 @@ async function handleSearch(params: any, cors: Record<string, string>) {
     const text = await resp.text();
     console.error("PNCP API error:", resp.status, text);
     return new Response(
-      JSON.stringify({
-        items: [],
-        totalPages: 0,
-        currentPage: pagina,
-      }),
-      { headers: { ...cors, "Content-Type": "application/json" } }
+      JSON.stringify({ error: `Erro na API PNCP (${resp.status}): ${text.substring(0, 200)}` }),
+      { status: 502, headers: { ...cors, "Content-Type": "application/json" } }
     );
   }
 
   const data = await resp.json();
+  console.log("PNCP response keys:", Object.keys(data));
 
-  const items = (data.data || []).map((item: any) => ({
+  const rawItems = data.data || data.items || [];
+  const totalPagesVal = data.totalPaginas || data.totalPages || 1;
+
+  const items = rawItems.map((item: any) => ({
     id: `${item.orgaoEntidade?.cnpj || ""}-${item.anoCompra || ""}-${item.sequencialCompra || ""}`,
     title: item.objetoCompra || item.descricao || "Sem título",
     agency: item.orgaoEntidade?.razaoSocial || "—",
@@ -113,14 +120,13 @@ async function handleSearch(params: any, cors: Record<string, string>) {
     value: item.valorTotalEstimado || null,
     publishedAt: item.dataPublicacaoPncp || "—",
     uf: item.unidadeOrgao?.ufSigla || item.orgaoEntidade?.ufSigla || "—",
-    // Keep raw data for import
     _raw: item,
   }));
 
   return new Response(
     JSON.stringify({
       items,
-      totalPages: data.totalPaginas || 1,
+      totalPages: totalPagesVal,
       currentPage: pagina,
     }),
     { headers: { ...cors, "Content-Type": "application/json" } }
