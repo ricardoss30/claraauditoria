@@ -181,10 +181,27 @@ export default function AuditReport() {
     onError: () => toast.error("Erro ao salvar relatório"),
   });
 
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
     if (!printRef.current || !content) return;
+
+    // Convert logo to base64 for inline embedding
+    let logoDataUri = "";
+    try {
+      const resp = await fetch("/images/clara-logo.png");
+      const blob = await resp.blob();
+      logoDataUri = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+      });
+    } catch { /* logo won't appear if fetch fails */ }
+
     const printWindow = window.open("", "_blank");
     if (!printWindow) return;
+
+    const logoHtml = logoDataUri
+      ? `<div style="text-align:center;margin-bottom:24px;"><img src="${logoDataUri}" alt="Logo" style="width:200px;height:auto;" /></div>`
+      : "";
 
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Relatório de Auditoria - ${doc?.title || ""}</title>
     <style>
@@ -194,6 +211,7 @@ export default function AuditReport() {
       .section { margin-bottom: 24px; white-space: pre-wrap; }
       @media print { body { padding: 20px; } }
     </style></head><body>
+    ${logoHtml}
     <h1>Relatório de Auditoria Fiscal</h1>
     ${SECTION_KEYS.map(key => `<h2>${SECTION_LABELS[key]}</h2><div class="section">${(content[key] || "").replace(/\n/g, "<br>")}</div>`).join("")}
     </body></html>`;
