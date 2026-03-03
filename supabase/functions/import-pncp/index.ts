@@ -106,9 +106,28 @@ async function handleSearch(params: any, cors: Record<string, string>) {
     );
   }
 
-  const data = await resp.json();
-  console.log("PNCP response keys:", Object.keys(data));
+  const responseText = await resp.text();
+  console.log("PNCP response length:", responseText.length, "preview:", responseText.substring(0, 300));
 
+  if (!responseText.trim()) {
+    return new Response(
+      JSON.stringify({ items: [], totalPages: 0, currentPage: pagina }),
+      { headers: { ...cors, "Content-Type": "application/json" } }
+    );
+  }
+
+  let data: any;
+  try {
+    data = JSON.parse(responseText);
+  } catch (parseErr) {
+    console.error("Failed to parse PNCP response:", parseErr);
+    return new Response(
+      JSON.stringify({ error: `Resposta inválida da API PNCP: ${responseText.substring(0, 200)}` }),
+      { status: 502, headers: { ...cors, "Content-Type": "application/json" } }
+    );
+  }
+
+  console.log("PNCP response keys:", Object.keys(data));
   const rawItems = data.data || data.items || [];
   const totalPagesVal = data.totalPaginas || data.totalPages || 1;
 
