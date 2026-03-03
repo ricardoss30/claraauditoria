@@ -25,22 +25,19 @@ Deno.serve(async (req) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabaseAnon = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-    // Verify user via getClaims
+    // Verify user using service role client (bypasses signing-key issues)
+    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
     const token = authHeader.replace("Bearer ", "");
-    const userClient = createClient(supabaseUrl, supabaseAnon, {
-      global: { headers: { authorization: authHeader } },
-    });
-    const { data: claimsData, error: claimsErr } = await userClient.auth.getClaims(token);
-    if (claimsErr || !claimsData?.claims) {
+    const { data: { user }, error: authErr } = await adminClient.auth.getUser(token);
+    if (authErr || !user) {
+      console.error("Auth error:", authErr?.message);
       return new Response(JSON.stringify({ error: "Não autorizado" }), {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const userId = claimsData.claims.sub as string;
+    const userId = user.id;
 
-    // Check role
-    const adminClient = createClient(supabaseUrl, supabaseServiceKey);
     const { data: roleData } = await adminClient
       .from("user_roles")
       .select("role")
