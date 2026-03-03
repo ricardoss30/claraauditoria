@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { toast } from "@/hooks/use-toast";
 import { format, subDays } from "date-fns";
 import { CalendarIcon, Search, Download, Loader2 } from "lucide-react";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -19,6 +20,22 @@ const UF_OPTIONS = [
   "PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO",
 ];
 
+const MODALITY_OPTIONS = [
+  { value: "1", label: "Leilão - Eletrônico" },
+  { value: "2", label: "Diálogo Competitivo" },
+  { value: "3", label: "Concurso" },
+  { value: "4", label: "Concorrência - Eletrônica" },
+  { value: "5", label: "Concorrência - Presencial" },
+  { value: "6", label: "Pregão - Eletrônico" },
+  { value: "7", label: "Pregão - Presencial" },
+  { value: "8", label: "Dispensa de Licitação" },
+  { value: "9", label: "Inexigibilidade" },
+  { value: "10", label: "Manifestação de Interesse" },
+  { value: "11", label: "Pré-qualificação" },
+  { value: "12", label: "Credenciamento" },
+  { value: "13", label: "Leilão - Presencial" },
+];
+
 const formatCurrency = (v: number | null) =>
   v != null ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v) : "—";
 
@@ -26,7 +43,7 @@ export default function ImportPNCP() {
   const [startDate, setStartDate] = useState<Date>(subDays(new Date(), 7));
   const [endDate, setEndDate] = useState<Date>(new Date());
   const [uf, setUf] = useState<string>("");
-  const [modality, setModality] = useState<string>("");
+  const [modality, setModality] = useState<string>("6");
 
   const lastSearchParams = useRef<PNCPSearchParams | null>(null);
 
@@ -36,13 +53,17 @@ export default function ImportPNCP() {
   const totalPages = searchResults?.totalPages ?? 1;
 
   const handleSearch = () => {
+    if (!modality) {
+      toast({ title: "Modalidade obrigatória", description: "Selecione uma modalidade para buscar.", variant: "destructive" });
+      return;
+    }
     const params: PNCPSearchParams = {
       dataInicial: format(startDate, "yyyyMMdd"),
       dataFinal: format(endDate, "yyyyMMdd"),
       pagina: 1,
+      codigoModalidadeContratacao: modality,
     };
     if (uf && uf !== "all") params.uf = uf;
-    if (modality) params.codigoModalidadeContratacao = modality;
     lastSearchParams.current = params;
     searchMutation.mutate(params);
   };
@@ -129,13 +150,17 @@ export default function ImportPNCP() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground">Modalidade</label>
-                <Input
-                  placeholder="Ex: 6 (Pregão)"
-                  value={modality}
-                  onChange={(e) => setModality(e.target.value)}
-                  className="w-36"
-                />
+                <label className="text-sm font-medium text-foreground">Modalidade *</label>
+                <Select value={modality} onValueChange={setModality}>
+                  <SelectTrigger className="w-56">
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MODALITY_OPTIONS.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <Button onClick={handleSearch} disabled={searchMutation.isPending}>
