@@ -265,23 +265,6 @@ serve(async (req) => {
     // Fetch knowledge base context
     const { context: knowledgeBaseContext, metadata: ragMetadata } = await fetchKnowledgeBaseContext(supabase, content, lovableApiKey);
 
-    // Check cache first to avoid redundant AI calls
-    const { data: cachedResult } = await supabase
-      .from("text_analysis_cache")
-      .select("result")
-      .eq("document_id", document_id)
-      .eq("analysis_type", "full_extraction")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    let result: any;
-    let aiData: any = {};
-
-    if (cachedResult?.result) {
-      console.log("Using cached analysis result for document", document_id);
-      result = cachedResult.result;
-    } else {
     // Call Lovable AI with tool calling for structured extraction
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -361,7 +344,6 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}`,
           },
         ],
         tool_choice: { type: "function", function: { name: "process_document_analysis" } },
-        temperature: 0,
       }),
     });
 
@@ -392,14 +374,11 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}`,
       throw new Error(`AI error: ${status}`);
     }
 
-    const aiDataResponse = await aiResponse.json();
-    const toolCall = aiDataResponse.choices?.[0]?.message?.tool_calls?.[0];
+    const aiData = await aiResponse.json();
+    const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall) throw new Error("No tool call in AI response");
 
-    result = JSON.parse(toolCall.function.arguments);
-    aiData = aiDataResponse;
-    } // end of cache miss block
-
+    const result = JSON.parse(toolCall.function.arguments);
     const { extracted_data, risk_score, alerts } = result;
 
     // Match alerts to rules
@@ -470,27 +449,23 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}`,
         }
       }
 
-      // Log audit with IP
-      const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
+      // Log audit
       await supabase.from("audit_logs").insert({
         action: "upload",
         resource_type: "document",
         resource_id: document_id,
-        ip_address: clientIp,
         details: { risk_score, alerts_count: alerts.length },
       });
     }
 
-    // Save to cache (only if we actually called the AI)
-    if (!cachedResult?.result) {
-      await supabase.from("text_analysis_cache").insert({
-        document_id,
-        analysis_type: "full_extraction",
-        result: result,
-        model_used: "google/gemini-3-flash-preview",
-        tokens_used: aiData.usage?.total_tokens || null,
-      });
-    }
+    // Save to cache
+    await supabase.from("text_analysis_cache").insert({
+      document_id,
+      analysis_type: "full_extraction",
+      result: result,
+      model_used: "google/gemini-3-flash-preview",
+      tokens_used: aiData.usage?.total_tokens || null,
+    });
 
     return new Response(JSON.stringify({ success: true, risk_score, alerts_count: alerts?.length || 0 }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

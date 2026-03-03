@@ -22,7 +22,7 @@ const actionLabels: Record<string, string> = {
 
 export default function AuditLogs() {
   const { hasAnyRole } = useAuth();
-  const { data, isLoading, actionFilter, setActionFilter, resourceFilter, setResourceFilter, page, setPage, pageSize, getUserName } = useAuditLogs();
+  const { data, isLoading, actionFilter, setActionFilter, resourceFilter, setResourceFilter, page, setPage, pageSize } = useAuditLogs();
 
   if (!hasAnyRole(["admin", "gestor"])) {
     return (
@@ -108,7 +108,7 @@ export default function AuditLogs() {
                           <Badge variant="secondary">{actionLabels[log.action] || log.action}</Badge>
                         </TableCell>
                         <TableCell className="capitalize">{log.resource_type}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground truncate max-w-[120px]" title={log.user_id || ""}>{getUserName(log.user_id)}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground truncate max-w-[120px]">{log.user_id?.substring(0, 8) ?? "Sistema"}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{log.ip_address ?? "—"}</TableCell>
                         <TableCell className="text-sm text-muted-foreground">{new Date(log.created_at).toLocaleString("pt-BR")}</TableCell>
                         <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">

@@ -1,25 +1,17 @@
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { FileText, AlertTriangle, Shield, TrendingUp, BarChart3, PieChart } from "lucide-react";
+import { FileText, AlertTriangle, Shield, TrendingUp } from "lucide-react";
 import { ExportButton } from "@/components/ExportButton";
 import { exportToCSV } from "@/hooks/useExport";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SeverityIndicator } from "@/components/SeverityIndicator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart as RechartsPie, Pie, Cell, Legend } from "recharts";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
-const PIE_COLORS = [
-  "hsl(var(--primary))",
-  "hsl(var(--clara-warning))",
-  "hsl(var(--clara-success))",
-  "hsl(var(--destructive))",
-  "hsl(var(--accent))",
-];
-
-function StatCard({ title, icon: Icon, value, loading, iconClass, subtitle }: {
-  title: string; icon: React.ElementType; value: string | number; loading: boolean; iconClass?: string; subtitle?: string;
+function StatCard({ title, icon: Icon, value, loading, iconClass }: {
+  title: string; icon: React.ElementType; value: string | number; loading: boolean; iconClass?: string;
 }) {
   return (
     <Card>
@@ -29,18 +21,13 @@ function StatCard({ title, icon: Icon, value, loading, iconClass, subtitle }: {
       </CardHeader>
       <CardContent>
         {loading ? <Skeleton className="h-8 w-16" /> : <p className="text-2xl font-bold">{value}</p>}
-        {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
       </CardContent>
     </Card>
   );
 }
 
 export default function Dashboard() {
-  const {
-    documentsProcessed, alertsPending, activeRules, accuracy,
-    averageRiskScore, documentsByStatus, documentsByModality,
-    alertsByCategory, documentsOverTime, recentAlerts,
-  } = useDashboardStats();
+  const { documentsProcessed, alertsPending, activeRules, accuracy, alertsByCategory, documentsOverTime, recentAlerts } = useDashboardStats();
 
   return (
     <AppLayout>
@@ -55,20 +42,18 @@ export default function Dashboard() {
               alertas_pendentes: alertsPending.data ?? 0,
               regras_ativas: activeRules.data ?? 0,
               taxa_precisao: accuracy.data != null ? `${accuracy.data}%` : "—",
-              score_medio_risco: averageRiskScore.data ?? "—",
             }], "resumo-dashboard")}
           />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <StatCard title="Documentos Analisados" icon={FileText} value={documentsProcessed.data ?? 0} loading={documentsProcessed.isLoading} />
           <StatCard title="Alertas Pendentes" icon={AlertTriangle} value={alertsPending.data ?? 0} loading={alertsPending.isLoading} iconClass="text-[hsl(var(--clara-warning))]" />
           <StatCard title="Regras Ativas" icon={Shield} value={activeRules.data ?? 0} loading={activeRules.isLoading} iconClass="text-primary" />
-          <StatCard title="Score Médio de Risco" icon={BarChart3} value={averageRiskScore.data != null ? averageRiskScore.data : "—"} loading={averageRiskScore.isLoading} iconClass="text-destructive" subtitle="0 = sem risco, 100 = máximo" />
           <StatCard title="Taxa de Precisão" icon={TrendingUp} value={accuracy.data != null ? `${accuracy.data}%` : "—"} loading={accuracy.isLoading} iconClass="text-[hsl(var(--clara-success))]" />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader><CardTitle className="text-base">Alertas por Categoria</CardTitle></CardHeader>
             <CardContent className="h-[250px]">
@@ -89,64 +74,24 @@ export default function Dashboard() {
           </Card>
 
           <Card>
-            <CardHeader><CardTitle className="text-base">Documentos por Status</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">Documentos (últimos 30 dias)</CardTitle></CardHeader>
             <CardContent className="h-[250px]">
-              {documentsByStatus.data && documentsByStatus.data.length > 0 ? (
+              {documentsOverTime.data && documentsOverTime.data.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
-                  <RechartsPie>
-                    <Pie data={documentsByStatus.data} dataKey="total" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
-                      {documentsByStatus.data.map((_, index) => (
-                        <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                    <Legend />
-                  </RechartsPie>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-sm text-muted-foreground flex items-center justify-center h-full">Sem documentos ainda.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader><CardTitle className="text-base">Distribuição por Modalidade</CardTitle></CardHeader>
-            <CardContent className="h-[250px]">
-              {documentsByModality.data && documentsByModality.data.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={documentsByModality.data} layout="vertical">
+                  <LineChart data={documentsOverTime.data}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                    <XAxis type="number" allowDecimals={false} />
-                    <YAxis dataKey="name" type="category" width={120} className="text-xs" />
+                    <XAxis dataKey="date" className="text-xs" />
+                    <YAxis allowDecimals={false} />
                     <Tooltip />
-                    <Bar dataKey="total" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
-                  </BarChart>
+                    <Line type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={2} />
+                  </LineChart>
                 </ResponsiveContainer>
               ) : (
-                <p className="text-sm text-muted-foreground flex items-center justify-center h-full">Sem dados de modalidade.</p>
+                <p className="text-sm text-muted-foreground flex items-center justify-center h-full">Sem documentos recentes.</p>
               )}
             </CardContent>
           </Card>
         </div>
-
-        <Card>
-          <CardHeader><CardTitle className="text-base">Documentos (últimos 30 dias)</CardTitle></CardHeader>
-          <CardContent className="h-[250px]">
-            {documentsOverTime.data && documentsOverTime.data.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={documentsOverTime.data}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis dataKey="date" className="text-xs" />
-                  <YAxis allowDecimals={false} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="count" stroke="hsl(var(--primary))" strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : (
-              <p className="text-sm text-muted-foreground flex items-center justify-center h-full">Sem documentos recentes.</p>
-            )}
-          </CardContent>
-        </Card>
 
         <Card>
           <CardHeader><CardTitle className="text-base">Alertas Recentes</CardTitle></CardHeader>

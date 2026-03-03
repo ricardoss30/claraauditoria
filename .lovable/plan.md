@@ -1,96 +1,49 @@
 
 
-## Plano de Acao - Correcoes e Melhorias do Sistema C.L.A.R.A
+## Correção dos avisos de segurança RLS e funções
 
-Baseado no relatorio de auditoria tecnica (Score de Maturidade: 38/100), segue o plano organizado por prioridade.
+### Problemas detectados pelo linter
 
----
+**1. RLS Policy Always True (2 avisos)**
+- **`conhecimento_chunks`** — política "Service role can manage chunks" (ALL) com `USING (true)` e `WITH CHECK (true)`, aplicada a **todos os roles** (`public`). Qualquer usuário autenticado pode inserir, atualizar e deletar chunks. Na prática, apenas edge functions (via service_role, que já ignora RLS) precisam dessa permissão.
+- **`text_analysis_cache`** — política "Service role can insert cache" (INSERT) com `WITH CHECK (true)`, aplicada a todos os roles. Mesmo cenário: apenas edge functions inserem dados de cache.
 
-### FASE 1 - Correcoes Criticas (Prioridade Alta)
+**2. Function Search Path Mutable (2 avisos)**
+- Funções `match_knowledge` e `match_conhecimento_chunks` não têm `search_path` definido, o que pode permitir ataques de path hijacking.
 
-**1.1. Estabilidade do Score de Risco [C-01]**
-- Problema: scores inconsistentes entre analises do mesmo documento
-- Acao: adicionar parametro `temperature: 0` na chamada ao modelo de IA em `process-document/index.ts` para garantir determinismo
-- Implementar cache de resultados para evitar reprocessamento desnecessario (ja existe `text_analysis_cache`, mas precisa ser consultado antes de chamar a IA)
+**3. Extension in Public (1 aviso)**
+- A extensão `vector` está instalada no schema `public`. Mover extensões para outro schema é complexo e pode quebrar funcionalidades existentes — recomendo ignorar este aviso.
 
-**1.2. Valor Estimado Ausente na Listagem**
-- Problema: campo `estimated_value` nao exibido de forma clara ou nao extraido corretamente
-- Acao: ja esta na tabela de documentos (`Documents.tsx` linha 119-122), verificar se a IA esta extraindo corretamente e se o campo esta sendo salvo
-
-**1.3. Metricas Incompletas no Dashboard**
-- Problema: "Taxa de Precisao" sem dados suficientes para calculo significativo
-- Acao: adicionar metricas adicionais ao Dashboard:
-  - Score medio de risco dos documentos
-  - Distribuicao por modalidade de licitacao
-  - Total de documentos por status (pendente/processado/erro)
-  - Tempo medio de processamento
-
-**1.4. Fluxo de Resolucao de Alertas**
-- Problema: alertas sem workflow estruturado de tratamento
-- Acao: ja existe fluxo basico (pending -> under_review -> confirmed/dismissed) em `DocumentDetail.tsx`
-- Melhorar: adicionar campo de "responsavel" (assigned_to) nos alertas, permitir atribuir alertas a usuarios especificos
-- Adicionar historico de alteracoes de status do alerta
+**4. Leaked Password Protection Disabled (1 aviso)**
+- Configuração do painel Supabase, não corrigível via migração SQL.
 
 ---
 
-### FASE 2 - Melhorias Funcionais (Prioridade Media)
+### Correções via migração SQL
 
-**2.1. Log de Auditoria - Identificacao de Usuario**
-- Problema: `user_id` exibido como hash truncado (8 chars), IP sempre ausente
-- Acao: fazer JOIN com tabela `profiles` para exibir `full_name` em vez do UUID
-- Capturar IP do cliente nas edge functions via header `x-forwarded-for` e salvar no campo `ip_address`
+**Migração única** com as seguintes alterações:
 
-**2.2. Regras de Risco Insuficientes**
-- Problema: apenas 3 regras ativas
-- Acao: criar seed de regras padrao baseadas na Lei 14.133/2021:
-  - Sobrepreco (valor > X% acima do estimado)
-  - Direcionamento de marca (mencao a marcas sem justificativa)
-  - Prazo exiguo (prazo < X dias para a modalidade)
-  - Fracionamento (valores proximos ao limite da modalidade)
-  - Ausencia de pesquisa de precos
-  - Exigencias restritivas de habilitacao
-  - Aditivos contratuais excessivos
-  - Ausencia de publicidade adequada
+1. **Dropar** a política "Service role can manage chunks" na tabela `conhecimento_chunks` (service_role já ignora RLS; remover elimina acesso indevido a outros roles)
 
-**2.3. Base de Conhecimento Vazia**
-- Problema: pastas sem arquivos vinculados
-- Acao: corrigir bug de criacao de pastas (ja corrigido com file_size_limit)
-- Adicionar documentacao/guia no EmptyState orientando o usuario sobre quais documentos carregar (legislacao, jurisprudencia, tabelas de referencia)
+2. **Dropar** a política "Service role can insert cache" na tabela `text_analysis_cache` (mesma lógica)
 
-**2.4. Versao do Sistema na Interface**
-- Problema: ausente na interface
-- Acao: adicionar numero de versao no footer do sidebar (`AppSidebar.tsx`) lido de `package.json` ou variavel de ambiente
+3. **Alterar** as funções `match_knowledge` e `match_conhecimento_chunks` para definir `SET search_path = public`
 
----
+```sql
+-- 1. Remove overly permissive policies (service_role bypasses RLS anyway)
+DROP POLICY IF EXISTS "Service role can manage chunks" ON public.conhecimento_chunks;
+DROP POLICY IF EXISTS "Service role can insert cache" ON public.text_analysis_cache;
 
-### FASE 3 - Evolucoes Estrategicas (Prioridade Baixa)
+-- 2. Fix function search_path
+ALTER FUNCTION public.match_knowledge(vector, integer) SET search_path = public;
+ALTER FUNCTION public.match_conhecimento_chunks(vector, integer, jsonb) SET search_path = public;
+```
 
-**3.1. Analise Comparativa entre Documentos**
-- Permitir comparar scores de risco e alertas entre documentos similares
+### O que NÃO será alterado
+- **Extension in Public**: mover `pgvector` quebraria referências existentes. Risco maior que o benefício.
+- **Leaked Password Protection**: configuração do painel Auth do Supabase, fora do escopo de migrações.
 
-**3.2. Painel de Tendencias**
-- Grafico de evolucao do score de risco ao longo do tempo
-- Identificacao de orgaos com maior frequencia de alertas
-
-**3.3. Exportacao de Relatorios Consolidados**
-- Gerar relatorio mensal/trimestral agregando todos os documentos analisados
-
-**3.4. Integracao com APIs de Dados Publicos**
-- Conectar com ComprasNet / PNCP para importacao automatica de editais
-
----
-
-### Resumo Tecnico de Implementacao
-
-| Item | Arquivos Afetados | Complexidade |
-|------|-------------------|--------------|
-| Score deterministico | `process-document/index.ts` | Baixa |
-| Metricas dashboard | `useDashboardStats.ts`, `Dashboard.tsx` | Media |
-| Audit log com nome | `AuditLogs.tsx`, `useAuditLogs.ts` | Baixa |
-| Captura de IP | Edge functions (todas) | Baixa |
-| Seed de regras | Nova migracao SQL | Baixa |
-| Versao na interface | `AppSidebar.tsx` | Trivial |
-| Responsavel no alerta | Migracao SQL + `DocumentDetail.tsx` | Media |
-
-Recomendo comecar pela Fase 1, que endereca os achados criticos do relatorio e tem maior impacto no score de maturidade do sistema.
+### Impacto
+- Nenhuma funcionalidade será afetada, pois as edge functions usam `service_role` key que já ignora RLS.
+- Usuários regulares mantêm acesso de leitura via as políticas SELECT existentes.
 
