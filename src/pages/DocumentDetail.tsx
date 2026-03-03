@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { RiskScoreBadge } from "@/components/RiskScoreBadge";
 import { SeverityIndicator } from "@/components/SeverityIndicator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Download, RefreshCw, FileText, Database, Eye, CheckCircle, XCircle } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw, FileText, Database, Eye, CheckCircle, XCircle, ClipboardList } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
 import { useToast } from "@/hooks/use-toast";
@@ -50,6 +50,16 @@ export default function DocumentDetail() {
     queryKey: ["document-alerts", id],
     queryFn: async () => {
       const { data, error } = await supabase.from("risk_alerts").select("*").eq("document_id", id!).order("severity", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!id,
+  });
+
+  const { data: existingReport } = useQuery({
+    queryKey: ["audit-report-exists", id],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("audit_reports").select("id").eq("document_id", id!).order("created_at", { ascending: false }).limit(1).maybeSingle();
       if (error) throw error;
       return data;
     },
@@ -183,6 +193,17 @@ export default function DocumentDetail() {
               label="Exportar PDF"
               onClick={() => exportToPDF(doc, alerts || [])}
             />
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => existingReport?.id
+                ? navigate(`/documents/${id}/report/${existingReport.id}`)
+                : navigate(`/documents/${id}/report`)
+              }
+            >
+              <ClipboardList className="h-4 w-4 mr-1" />
+              {existingReport ? "Ver Relatório" : "Gerar Relatório"}
+            </Button>
           </div>
         </div>
 

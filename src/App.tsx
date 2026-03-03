@@ -16,6 +16,7 @@ import Sources from "./pages/Sources";
 import Settings from "./pages/Settings";
 import DocumentDetail from "./pages/DocumentDetail";
 import AuditLogs from "./pages/AuditLogs";
+import AuditReport from "./pages/AuditReport";
 import NotFound from "./pages/NotFound";
 import UsersManagement from "./pages/settings/UsersManagement";
 import AgentPrompt from "./pages/settings/AgentPrompt";
@@ -37,6 +38,8 @@ const App = () => (
               <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
               <Route path="/documents/:id" element={<ProtectedRoute><DocumentDetail /></ProtectedRoute>} />
+              <Route path="/documents/:id/report" element={<ProtectedRoute><AuditReport /></ProtectedRoute>} />
+              <Route path="/documents/:id/report/:reportId" element={<ProtectedRoute><AuditReport /></ProtectedRoute>} />
               <Route path="/alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
               <Route path="/rules" element={<ProtectedRoute><Rules /></ProtectedRoute>} />
               <Route path="/sources" element={<ProtectedRoute><Sources /></ProtectedRoute>} />

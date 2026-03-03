@@ -47,6 +47,44 @@ export type Database = {
         }
         Relationships: []
       }
+      audit_reports: {
+        Row: {
+          content: Json
+          created_at: string | null
+          created_by: string | null
+          document_id: string
+          id: string
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          content?: Json
+          created_at?: string | null
+          created_by?: string | null
+          document_id: string
+          id?: string
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          content?: Json
+          created_at?: string | null
+          created_by?: string | null
+          document_id?: string
+          id?: string
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_reports_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "procurement_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       conhecimento_chunks: {
         Row: {
           content: string
