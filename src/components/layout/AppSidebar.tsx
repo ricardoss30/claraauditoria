@@ -1,4 +1,4 @@
-import { LayoutDashboard, FileText, AlertTriangle, Shield, Database, Settings, LogOut, ClipboardList, Users, Bot, User, Code, ChevronRight } from "lucide-react";
+import { LayoutDashboard, FileText, AlertTriangle, Shield, Database, Settings, LogOut, ClipboardList, Users, Bot, User, Code, ChevronRight, TrendingUp } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/contexts/AuthContext";
@@ -38,6 +38,7 @@ export function AppSidebar() {
     { title: "Documentos", url: "/documents", icon: FileText },
     { title: "Alertas", url: "/alerts", icon: AlertTriangle },
     { title: "Regras", url: "/rules", icon: Shield },
+    { title: "Tendências", url: "/trends", icon: TrendingUp },
     ...(canAccessKnowledge ? [{ title: "Base de Conhecimento", url: "/sources", icon: Database }] : []),
   ];
 
