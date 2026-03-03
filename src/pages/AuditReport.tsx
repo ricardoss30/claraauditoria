@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Save, Edit3, FileText, Eye } from "lucide-react";
+import { ArrowLeft, Save, Edit3, FileText, Eye, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useState, useEffect, useRef } from "react";
 
@@ -106,6 +106,7 @@ export default function AuditReport() {
   const [content, setContent] = useState<ReportContent | null>(null);
   const [editing, setEditing] = useState(true);
   const [initialized, setInitialized] = useState(false);
+  const [generatingAI, setGeneratingAI] = useState(false);
 
   const { data: doc, isLoading: loadingDoc } = useQuery({
     queryKey: ["document", id],
@@ -241,6 +242,33 @@ export default function AuditReport() {
             <p className="text-sm text-muted-foreground truncate">{doc.title}</p>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                setGeneratingAI(true);
+                try {
+                  const { data: fnData, error: fnError } = await supabase.functions.invoke("generate-report", {
+                    body: { document_id: id },
+                  });
+                  if (fnError) throw fnError;
+                  if (fnData?.error) throw new Error(fnData.error);
+                  if (fnData?.content) {
+                    setContent(fnData.content as ReportContent);
+                    setEditing(true);
+                    toast.success("Relatório gerado pela IA com sucesso!");
+                  }
+                } catch (err: any) {
+                  toast.error(err.message || "Erro ao gerar relatório com IA");
+                } finally {
+                  setGeneratingAI(false);
+                }
+              }}
+              disabled={generatingAI}
+            >
+              {generatingAI ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Sparkles className="h-4 w-4 mr-1" />}
+              {generatingAI ? "Gerando..." : "Gerar com IA"}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setEditing(!editing)}>
               {editing ? <><Eye className="h-4 w-4 mr-1" /> Visualizar</> : <><Edit3 className="h-4 w-4 mr-1" /> Editar</>}
             </Button>

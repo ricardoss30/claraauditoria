@@ -22,7 +22,19 @@ export function useDocuments() {
 
       const { data, count, error } = await q;
       if (error) throw error;
-      return { data: data ?? [], total: count ?? 0 };
+
+      // Fetch document IDs that have audit reports
+      const docIds = (data ?? []).map(d => d.id);
+      let reportDocIds = new Set<string>();
+      if (docIds.length > 0) {
+        const { data: reports } = await supabase
+          .from("audit_reports")
+          .select("document_id")
+          .in("document_id", docIds);
+        reportDocIds = new Set((reports ?? []).map(r => r.document_id));
+      }
+
+      return { data: data ?? [], total: count ?? 0, reportDocIds };
     },
   });
 
