@@ -39,7 +39,7 @@ export async function createFolder(path: string) {
   const placeholder = `${path}/.emptyFolderPlaceholder`;
   const { error } = await supabase.storage
     .from(BUCKET)
-    .upload(placeholder, new Blob([""]), { upsert: true });
+    .upload(placeholder, new Blob([" "]), { upsert: true, contentType: "text/plain" });
   if (error) throw error;
 }
 
