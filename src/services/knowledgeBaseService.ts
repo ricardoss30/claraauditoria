@@ -2,10 +2,24 @@ import { supabase } from "@/integrations/supabase/client";
 
 const BUCKET = "base_conhecimento";
 
+export function sanitizePath(input: string): string {
+  return input
+    .split("/")
+    .map((segment) =>
+      segment
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, "-")
+        .replace(/[^a-zA-Z0-9\-_.]/g, "")
+        .toLowerCase()
+    )
+    .join("/");
+}
+
 export async function uploadFile(file: File, path: string) {
+  const safePath = sanitizePath(path);
   const { data, error } = await supabase.storage
     .from(BUCKET)
-    .upload(path, file, {
+    .upload(safePath, file, {
       cacheControl: "3600",
       upsert: true,
     });
@@ -36,7 +50,8 @@ export async function deleteFile(path: string) {
 }
 
 export async function createFolder(path: string) {
-  const placeholder = `${path}/.emptyFolderPlaceholder`;
+  const safePath = sanitizePath(path);
+  const placeholder = `${safePath}/.emptyFolderPlaceholder`;
   const { error } = await supabase.storage
     .from(BUCKET)
     .upload(placeholder, new Blob([" "]), { upsert: true, contentType: "text/plain" });
