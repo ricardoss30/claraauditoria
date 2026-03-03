@@ -36,16 +36,18 @@ export async function listFiles(folder = "") {
 }
 
 export async function getFileUrl(path: string) {
+  const safePath = sanitizePath(path);
   const { data } = await supabase.storage
     .from(BUCKET)
-    .createSignedUrl(path, 3600);
+    .createSignedUrl(safePath, 3600);
   return data?.signedUrl;
 }
 
 export async function deleteFile(path: string) {
+  const safePath = sanitizePath(path);
   const { error } = await supabase.storage
     .from(BUCKET)
-    .remove([path]);
+    .remove([safePath]);
   if (error) throw error;
 }
 
@@ -59,9 +61,10 @@ export async function createFolder(path: string) {
 }
 
 export async function deleteFolder(path: string) {
-  const files = await listFiles(path);
+  const safePath = sanitizePath(path);
+  const files = await listFiles(safePath);
   if (files.length > 0) {
-    const paths = files.map((f) => `${path}/${f.name}`);
+    const paths = files.map((f) => `${safePath}/${f.name}`);
     const { error } = await supabase.storage.from(BUCKET).remove(paths);
     if (error) throw error;
   }
