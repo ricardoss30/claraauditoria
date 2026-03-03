@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { format, subDays } from "date-fns";
 import { CalendarIcon, Search, Download, Loader2 } from "lucide-react";
 import { AppLayout } from "@/components/layout/AppLayout";
@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious, PaginationEllipsis } from "@/components/ui/pagination";
 import { cn } from "@/lib/utils";
 import { useImportPNCP, PNCPSearchParams } from "@/hooks/useImportPNCP";
 
@@ -27,21 +28,47 @@ export default function ImportPNCP() {
   const [uf, setUf] = useState<string>("");
   const [modality, setModality] = useState<string>("");
 
+  const lastSearchParams = useRef<PNCPSearchParams | null>(null);
+
   const { searchResults, selectedIds, searchMutation, importMutation, toggleSelection, toggleAll } = useImportPNCP();
+
+  const currentPage = searchResults?.currentPage ?? 1;
+  const totalPages = searchResults?.totalPages ?? 1;
 
   const handleSearch = () => {
     const params: PNCPSearchParams = {
       dataInicial: format(startDate, "yyyyMMdd"),
       dataFinal: format(endDate, "yyyyMMdd"),
+      pagina: 1,
     };
-    if (uf) params.uf = uf;
+    if (uf && uf !== "all") params.uf = uf;
     if (modality) params.codigoModalidadeContratacao = modality;
+    lastSearchParams.current = params;
     searchMutation.mutate(params);
+  };
+
+  const handlePageChange = (page: number) => {
+    if (!lastSearchParams.current || page < 1 || page > totalPages) return;
+    searchMutation.mutate({ ...lastSearchParams.current, pagina: page });
   };
 
   const handleImport = () => {
     if (selectedIds.size === 0) return;
     importMutation.mutate(Array.from(selectedIds));
+  };
+
+  const getPageNumbers = () => {
+    const pages: (number | "ellipsis")[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (currentPage > 3) pages.push("ellipsis");
+      for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) pages.push(i);
+      if (currentPage < totalPages - 2) pages.push("ellipsis");
+      pages.push(totalPages);
+    }
+    return pages;
   };
 
   return (
@@ -166,6 +193,42 @@ export default function ImportPNCP() {
                   ))}
                 </TableBody>
               </Table>
+
+              {totalPages > 1 && (
+                <Pagination className="mt-4">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        className={cn(currentPage <= 1 && "pointer-events-none opacity-50", "cursor-pointer")}
+                      />
+                    </PaginationItem>
+                    {getPageNumbers().map((p, i) =>
+                      p === "ellipsis" ? (
+                        <PaginationItem key={`e-${i}`}>
+                          <PaginationEllipsis />
+                        </PaginationItem>
+                      ) : (
+                        <PaginationItem key={p}>
+                          <PaginationLink
+                            isActive={p === currentPage}
+                            onClick={() => handlePageChange(p)}
+                            className="cursor-pointer"
+                          >
+                            {p}
+                          </PaginationLink>
+                        </PaginationItem>
+                      )
+                    )}
+                    <PaginationItem>
+                      <PaginationNext
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        className={cn(currentPage >= totalPages && "pointer-events-none opacity-50", "cursor-pointer")}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              )}
             </CardContent>
           </Card>
         )}
