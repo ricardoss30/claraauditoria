@@ -1,28 +1,29 @@
 
 
-## Analise do Erro "The object exceeded the maximum allowed size"
+## Diagnostico da Importacao PNCP
 
-### Diagnostico
+### Problemas encontrados
 
-Investigando o banco de dados:
-- O bucket `base_conhecimento` tem limite de 50MB — o placeholder de 1 byte nao deveria exceder isso
-- As pastas existentes ("Manual de Compras", "Guia de Auditoria") foram criadas COM espacos e acentos (antes da sanitizacao)
-- Existem **duas politicas INSERT duplicadas** para o bucket `base_conhecimento`:
-  1. "Authenticated users can upload"
-  2. "Authenticated users can upload to base_conhecimento"
-- As RLS policies parecem corretas
+1. **API PNCP exige `codigoModalidadeContratacao`**: O parametro é obrigatorio na API real, mas a edge function o trata como opcional. Quando o usuario busca sem informar a modalidade, a API retorna erro 400 ("Required parameter 'codigoModalidadeContratacao' is not present"). A funcao captura o erro e retorna lista vazia silenciosamente - o usuario acha que nao ha resultados.
 
-O erro provavelmente vem de um conflito com o `upsert: true` e o Blob. A combinacao de `new Blob([" "])` com `contentType: "text/plain"` e `upsert: true` pode estar causando conflito em certas versoes do Supabase Storage SDK.
+2. **`tamanhoPagina` minimo é 10**: A API exige `tamanhoPagina >= 10`. O valor atual de `20` está ok, mas foi necessario confirmar.
+
+3. **Mapeamento de campos da resposta pode estar incorreto**: Preciso validar que `data.data` e `data.totalPaginas` correspondem à estrutura real da resposta da API. A API pode usar campos como `items` e `totalPages` em vez de `data` e `totalPaginas`.
 
 ### Correcoes
 
-1. **`src/services/knowledgeBaseService.ts`** — Na funcao `createFolder`:
-   - Trocar `new Blob([" "])` por `new Blob([""], { type: "text/plain" })` (string vazia, tipo embutido no blob)
-   - Remover o `contentType` separado do options
-   - Adicionar tratamento de erro mais detalhado com log para diagnostico
+1. **`supabase/functions/import-pncp/index.ts`** — Na funcao `handleSearch`:
+   - Tornar `codigoModalidadeContratacao` obrigatorio OU definir um valor padrao (ex: buscar todas as modalidades com multiplas chamadas)
+   - Melhor abordagem: retornar erro explicito quando o parametro nao for informado, em vez de silenciar o erro da API
 
-2. **Remover politicas INSERT duplicadas** via migracao SQL:
-   - Remover a politica "Authenticated users can upload" (duplicada) que pode estar causando conflito
+2. **`src/pages/ImportPNCP.tsx`** — Melhorar a UI:
+   - Trocar o campo de texto livre da modalidade por um `Select` com as opcoes documentadas da API (1-Leilao, 2-Dialogo Competitivo, 3-Concurso, 4-Concorrencia, 5-Pregao, 6-Pregao Eletronico, 8-Dispensa, 9-Inexigibilidade)
+   - Tornar a modalidade obrigatoria no formulario de busca
+   - Mostrar mensagem de erro clara quando a API retornar vazio vs erro
 
-3. **`src/services/knowledgeBaseService.ts`** — Adicionar fallback: se o upload com `upsert: true` falhar, tentar sem upsert
+3. **`supabase/functions/import-pncp/index.ts`** — Melhorar tratamento de erros:
+   - Logar e propagar o erro real da API PNCP em vez de retornar silenciosamente lista vazia
+   - Validar a estrutura da resposta antes de mapear os campos
+
+4. **`src/hooks/useImportPNCP.ts`** — Sem alteracoes necessarias, a logica de hook está correta.
 
