@@ -1,35 +1,26 @@
 
 
-## Problema
+## Análise
 
-O Supabase Storage rejeita chaves (paths) com espaços e caracteres acentuados. O nome "Manual de Jurisprudência/.emptyFolderPlaceholder" falha por conter espaço e "ê".
+O erro "The object exceeded the maximum allowed size" é provavelmente uma mensagem enganosa do Supabase Storage para paths com caracteres inválidos (acentos, espaços). O `sanitizePath` já foi adicionado ao service, mas preciso verificar se está sendo aplicado corretamente em todos os pontos.
 
-## Solução
+Analisando o fluxo:
+1. `handleCreateFolder` → `createFolderMutation` → `createFolder(path)` → `sanitizePath(path)` ✅
+2. Porém, ao navegar dentro de pastas existentes (que têm nomes com espaços como "Manual de Compras"), o `currentPath` armazena o nome original não-sanitizado. Ao criar subpastas, o path fica `Manual de Compras/nova-pasta`, misturando segmentos sanitizados e não-sanitizados.
 
-Sanitizar o nome da pasta/arquivo antes de usar como path no Storage, convertendo espaços em hífens e removendo acentos. O nome original é preservado visualmente na listagem (o Storage retorna o nome salvo).
+### Correções
 
-### Alterações
+1. **`src/pages/Sources.tsx`** — Aplicar `sanitizePath` ao construir o path de upload de arquivos (linha ~101):
+   ```typescript
+   const path = sanitizePath(folder ? `${folder}/${file.name}` : file.name);
+   ```
+   Atualmente o path do upload no handler só sanitiza no service, mas o path passado ao `embedFile` não é sanitizado.
 
-1. **`src/services/knowledgeBaseService.ts`** — Adicionar função `sanitizePath(name: string)` que:
-   - Remove acentos via `normalize("NFD").replace(/[\u0300-\u036f]/g, "")`
-   - Substitui espaços por hífens
-   - Remove caracteres especiais (mantém alfanuméricos, hífens, underscores, pontos, barras)
-   - Converte para lowercase
-   - Aplicar em `createFolder`, `uploadFile` e nos paths gerados
+2. **`src/pages/Sources.tsx`** — Sanitizar o path do embed para consistência (linhas 100-103), pois `embedFile` recebe o path original com acentos.
 
-2. **`src/pages/Sources.tsx`** — Aplicar a mesma sanitização ao construir o path de upload, para que os caminhos fiquem consistentes.
+3. **`src/pages/Sources.tsx`** — Sanitizar o `folderName` no `handleCreateFolder` e o path nos `handleDelete`/`handleDownload`/`handlePreview` para que o path enviado ao Storage seja sempre limpo.
 
-### Detalhes técnicos
+4. **`src/services/knowledgeBaseService.ts`** — Aplicar `sanitizePath` também em `deleteFile`, `deleteFolder`, e `getFileUrl` para garantir que TODOS os paths passados ao Storage sejam sanitizados, independentemente da origem.
 
-```typescript
-function sanitizePath(input: string): string {
-  return input
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")  // remove acentos
-    .replace(/\s+/g, "-")                                // espaços → hífens
-    .replace(/[^a-zA-Z0-9\-_./]/g, "")                  // remove especiais
-    .toLowerCase();
-}
-```
-
-A sanitização é aplicada por segmento de path (cada parte entre `/`) para preservar a estrutura de diretórios. A função `createFolder` e `uploadFile` receberão paths já sanitizados, pois a sanitização ocorre no ponto de construção do path (no componente Sources e no service).
+Essas mudanças garantem que nenhum path com acentos ou espaços chegue à API do Supabase Storage.
 
