@@ -83,6 +83,18 @@ async function handleSearch(params: any, cors: Record<string, string>) {
     );
   }
 
+  // Validate date range <= 365 days
+  const parseDate = (s: string) => new Date(`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`);
+  const d1 = parseDate(dataInicial);
+  const d2 = parseDate(dataFinal);
+  const diffDays = Math.ceil((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays > 365) {
+    return new Response(
+      JSON.stringify({ error: "O período máximo de busca é de 365 dias." }),
+      { status: 400, headers: { ...cors, "Content-Type": "application/json" } }
+    );
+  }
+
   const url = new URL("https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao");
   url.searchParams.set("dataInicial", dataInicial);
   url.searchParams.set("dataFinal", dataFinal);
