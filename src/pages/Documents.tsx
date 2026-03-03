@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/StatusBadge";
 import { RiskScoreBadge } from "@/components/RiskScoreBadge";
 import { EmptyState } from "@/components/EmptyState";
-import { FileText, Search, ChevronLeft, ChevronRight, Plus, Trash2, Eye } from "lucide-react";
+import { FileText, Search, ChevronLeft, ChevronRight, Plus, Trash2, Eye, ClipboardCheck } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DocumentUploadDialog } from "@/components/DocumentUploadDialog";
 import {
@@ -107,6 +107,7 @@ export default function Documents() {
                       <TableHead>Status</TableHead>
                       <TableHead>Publicação</TableHead>
                       <TableHead>Risco</TableHead>
+                      <TableHead>Relatório</TableHead>
                       <TableHead className="w-[100px]">Ações</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -126,6 +127,21 @@ export default function Documents() {
                           {doc.published_at ? new Date(doc.published_at).toLocaleDateString("pt-BR") : "—"}
                         </TableCell>
                         <TableCell><RiskScoreBadge score={doc.risk_score} /></TableCell>
+                        <TableCell>
+                          {data.reportDocIds.has(doc.id) ? (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-primary hover:text-primary/80"
+                              onClick={(e) => { e.stopPropagation(); navigate(`/documents/${doc.id}/report`); }}
+                              title="Ver Relatório"
+                            >
+                              <ClipboardCheck className="h-4 w-4" />
+                            </Button>
+                          ) : (
+                            <span className="text-muted-foreground text-sm pl-2">—</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <div className="flex gap-1">
                             <Button
