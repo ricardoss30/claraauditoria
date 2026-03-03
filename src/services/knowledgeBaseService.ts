@@ -54,10 +54,23 @@ export async function deleteFile(path: string) {
 export async function createFolder(path: string) {
   const safePath = sanitizePath(path);
   const placeholder = `${safePath}/.emptyFolderPlaceholder`;
+  const blob = new Blob([""], { type: "text/plain" });
+
+  // Try with upsert first, fallback without upsert
   const { error } = await supabase.storage
     .from(BUCKET)
-    .upload(placeholder, new Blob([" "]), { upsert: true, contentType: "text/plain" });
-  if (error) throw error;
+    .upload(placeholder, blob, { upsert: true });
+
+  if (error) {
+    console.warn("createFolder upsert failed, retrying without upsert:", error.message);
+    const { error: retryError } = await supabase.storage
+      .from(BUCKET)
+      .upload(placeholder, blob, { upsert: false });
+    if (retryError) {
+      console.error("createFolder retry also failed:", retryError.message);
+      throw retryError;
+    }
+  }
 }
 
 export async function deleteFolder(path: string) {
