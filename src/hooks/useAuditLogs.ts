@@ -8,6 +8,18 @@ export function useAuditLogs() {
   const [page, setPage] = useState(0);
   const pageSize = 20;
 
+  // Fetch profiles for user name lookup
+  const { data: profiles } = useQuery({
+    queryKey: ["profiles-lookup"],
+    queryFn: async () => {
+      const { data } = await supabase.from("profiles").select("user_id, full_name");
+      const map = new Map<string, string>();
+      (data || []).forEach((p) => map.set(p.user_id, p.full_name || ""));
+      return map;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   const query = useQuery({
     queryKey: ["audit-logs", actionFilter, resourceFilter, page],
     queryFn: async () => {
@@ -26,10 +38,16 @@ export function useAuditLogs() {
     },
   });
 
+  const getUserName = (userId: string | null) => {
+    if (!userId) return "Sistema";
+    return profiles?.get(userId) || userId.substring(0, 8);
+  };
+
   return {
     ...query,
     actionFilter, setActionFilter,
     resourceFilter, setResourceFilter,
     page, setPage, pageSize,
+    getUserName,
   };
 }

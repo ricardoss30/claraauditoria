@@ -135,6 +135,7 @@ export function AppSidebar() {
         <Button variant="ghost" size="sm" className="w-full justify-start text-sidebar-foreground/70 hover:text-sidebar-foreground" onClick={signOut}>
           <LogOut className="mr-2 h-4 w-4" /> Sair
         </Button>
+        <div className="mt-2 text-center text-[10px] text-sidebar-foreground/40">C.L.A.R.A v1.0.0</div>
       </SidebarFooter>
     </Sidebar>
   );
