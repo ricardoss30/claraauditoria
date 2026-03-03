@@ -252,6 +252,7 @@ export type Database = {
       risk_alerts: {
         Row: {
           alert_type: string
+          assigned_to: string | null
           created_at: string
           criteria: string | null
           description: string | null
@@ -269,6 +270,7 @@ export type Database = {
         }
         Insert: {
           alert_type: string
+          assigned_to?: string | null
           created_at?: string
           criteria?: string | null
           description?: string | null
@@ -286,6 +288,7 @@ export type Database = {
         }
         Update: {
           alert_type?: string
+          assigned_to?: string | null
           created_at?: string
           criteria?: string | null
           description?: string | null
