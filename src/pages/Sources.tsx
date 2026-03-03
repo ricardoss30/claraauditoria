@@ -1,7 +1,7 @@
 import { useState, useRef, useMemo } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useKnowledgeBase } from "@/hooks/useKnowledgeBase";
-import { getFileUrl, embedFile } from "@/services/knowledgeBaseService";
+import { getFileUrl, embedFile, sanitizePath } from "@/services/knowledgeBaseService";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -90,7 +90,7 @@ export default function Sources() {
     }
     Promise.all(
       validFiles.map((file) => {
-        const path = folder ? `${folder}/${file.name}` : file.name;
+        const path = sanitizePath(folder ? `${folder}/${file.name}` : file.name);
         return uploadMutation.mutateAsync({ file, path });
       })
     )
@@ -98,7 +98,7 @@ export default function Sources() {
         toast.success(`${validFiles.length} arquivo(s) enviado(s)`);
         setUploadOpen(false);
         for (const file of validFiles) {
-          const path = folder ? `${folder}/${file.name}` : file.name;
+          const path = sanitizePath(folder ? `${folder}/${file.name}` : file.name);
           embedFile(path, "upsert").catch((e) => console.error("Embed failed:", e));
         }
         toast.info("Gerando embeddings vetoriais...");
