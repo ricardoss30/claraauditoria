@@ -11,7 +11,7 @@ const corsHeaders = {
 const BUCKET = "base_conhecimento";
 const CHUNK_SIZE = 500;
 const CHUNK_OVERLAP = 50;
-const MAX_EMBEDDING_TIME_MS = 45000; // Stop trying embeddings after 45s to stay under 60s timeout
+const MAX_TEXT_LENGTH = 500000; // Limit text extraction to avoid CPU timeout
 
 function splitIntoChunks(text: string): string[] {
   const chunks: string[] = [];
@@ -25,54 +25,13 @@ function splitIntoChunks(text: string): string[] {
   return chunks;
 }
 
-async function generateEmbedding(text: string, apiKey: string): Promise<number[] | null> {
-  try {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
-        messages: [
-          {
-            role: "system",
-            content: `You are an embedding generator. Given a text, output ONLY a JSON array of exactly 384 floating point numbers between -1 and 1 representing the semantic meaning of the text. No other text, no explanation, just the JSON array.`,
-          },
-          { role: "user", content: text.substring(0, 1000) },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      console.warn("Embedding generation failed:", response.status);
-      return null;
-    }
-
-    const data = await response.json();
-    let content = data.choices?.[0]?.message?.content?.trim();
-    if (!content) return null;
-
-    // Strip markdown code fences that the model sometimes wraps around JSON
-    content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-    const parsed = JSON.parse(content);
-    if (Array.isArray(parsed) && parsed.length === 384) {
-      return parsed.map((n: any) => Number(n));
-    }
-    return null;
-  } catch (e) {
-    console.warn("Failed to generate embedding:", e);
-    return null;
-  }
-}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
+  
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
   try {
@@ -145,6 +104,12 @@ serve(async (req) => {
       throw new Error(`Unsupported file type: ${ext}`);
     }
 
+    // Truncate to avoid CPU timeout on very large documents
+    if (text.length > MAX_TEXT_LENGTH) {
+      console.log(`Text truncated from ${text.length} to ${MAX_TEXT_LENGTH} chars for ${file_path}`);
+      text = text.slice(0, MAX_TEXT_LENGTH);
+    }
+
     if (!text.trim()) {
       console.log(`No text extracted from ${file_path}`);
       return new Response(JSON.stringify({ success: true, chunks: 0, file_path }), {
@@ -179,39 +144,10 @@ serve(async (req) => {
       if (inserted) insertedIds.push(...inserted.map((r: any) => r.id));
     }
 
-    console.log(`Successfully inserted ${insertedIds.length} chunks (without embeddings) for ${file_path}`);
 
-    // STEP 2: Try to generate embeddings for each chunk, with time budget
-    let embeddingsGenerated = 0;
-    if (lovableApiKey && insertedIds.length > 0) {
-      const startTime = Date.now();
-
-      for (let i = 0; i < chunks.length; i++) {
-        // Check time budget
-        if (Date.now() - startTime > MAX_EMBEDDING_TIME_MS) {
-          console.log(`Time budget exceeded after ${i} chunks, stopping embedding generation`);
-          break;
-        }
-
-        const embedding = await generateEmbedding(chunks[i], lovableApiKey);
-        if (embedding && insertedIds[i]) {
-          const { error: updateErr } = await supabase
-            .from("conhecimento_chunks")
-            .update({ embedding: `[${embedding.join(",")}]` })
-            .eq("id", insertedIds[i]);
-
-          if (!updateErr) {
-            embeddingsGenerated++;
-          } else {
-            console.warn(`Failed to update embedding for chunk ${insertedIds[i]}:`, updateErr);
-          }
-        }
-      }
-    }
-
-    console.log(`Successfully processed ${file_path}: ${insertedIds.length} chunks inserted, ${embeddingsGenerated} with embeddings`);
+    console.log(`Successfully processed ${file_path}: ${insertedIds.length} chunks inserted`);
     return new Response(
-      JSON.stringify({ success: true, chunks: insertedIds.length, embeddings: embeddingsGenerated, file_path }),
+      JSON.stringify({ success: true, chunks: insertedIds.length, file_path }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
