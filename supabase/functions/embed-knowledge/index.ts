@@ -76,6 +76,31 @@ serve(async (req) => {
   const supabase = createClient(supabaseUrl, serviceRoleKey);
 
   try {
+    // Authenticate caller
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const supabaseAuth = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const token = authHeader.replace("Bearer ", "");
+    const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getClaims(token);
+    if (claimsError || !claimsData?.claims) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const callerId = claimsData.claims.sub as string;
+    const { data: callerRoles } = await supabaseAuth.from("user_roles").select("role").eq("user_id", callerId);
+    if (!callerRoles?.some((r: any) => ["admin", "gestor"].includes(r.role))) {
+      return new Response(JSON.stringify({ error: "Permission denied" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { file_path, action } = await req.json();
     if (!file_path) throw new Error("file_path is required");
 

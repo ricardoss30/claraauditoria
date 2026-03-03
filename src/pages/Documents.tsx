@@ -37,8 +37,7 @@ export default function Documents() {
       await supabase.from("risk_alerts").delete().eq("document_id", deleteDoc.id);
       // 2. Delete file from storage
       if (deleteDoc.file_url) {
-        const path = deleteDoc.file_url.split("/storage/v1/object/public/documents/").pop();
-        if (path) await supabase.storage.from("documents").remove([decodeURIComponent(path)]);
+        await supabase.storage.from("documents").remove([deleteDoc.file_url]);
       }
       // 3. Delete document
       const { error } = await supabase.from("procurement_documents").delete().eq("id", deleteDoc.id);
