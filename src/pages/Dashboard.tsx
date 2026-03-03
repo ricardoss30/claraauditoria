@@ -27,7 +27,7 @@ function StatCard({ title, icon: Icon, value, loading, iconClass }: {
 }
 
 export default function Dashboard() {
-  const { documentsProcessed, alertsPending, activeRules, accuracy, alertsByCategory, documentsOverTime, recentAlerts } = useDashboardStats();
+  const { documentsProcessed, alertsPending, activeRules, accuracy, alertsByCategory, documentsOverTime, recentAlerts, avgRiskScore, documentsByStatus, modalityDistribution } = useDashboardStats();
 
   return (
     <AppLayout>
@@ -46,10 +46,11 @@ export default function Dashboard() {
           />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           <StatCard title="Documentos Analisados" icon={FileText} value={documentsProcessed.data ?? 0} loading={documentsProcessed.isLoading} />
           <StatCard title="Alertas Pendentes" icon={AlertTriangle} value={alertsPending.data ?? 0} loading={alertsPending.isLoading} iconClass="text-[hsl(var(--clara-warning))]" />
           <StatCard title="Regras Ativas" icon={Shield} value={activeRules.data ?? 0} loading={activeRules.isLoading} iconClass="text-primary" />
+          <StatCard title="Score Médio de Risco" icon={TrendingUp} value={avgRiskScore.data != null ? avgRiskScore.data : "—"} loading={avgRiskScore.isLoading} iconClass="text-destructive" />
           <StatCard title="Taxa de Precisão" icon={TrendingUp} value={accuracy.data != null ? `${accuracy.data}%` : "—"} loading={accuracy.isLoading} iconClass="text-[hsl(var(--clara-success))]" />
         </div>
 
@@ -88,6 +89,46 @@ export default function Dashboard() {
                 </ResponsiveContainer>
               ) : (
                 <p className="text-sm text-muted-foreground flex items-center justify-center h-full">Sem documentos recentes.</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card>
+            <CardHeader><CardTitle className="text-base">Documentos por Status</CardTitle></CardHeader>
+            <CardContent className="h-[250px]">
+              {documentsByStatus.data && documentsByStatus.data.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={documentsByStatus.data}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="name" className="text-xs" />
+                    <YAxis allowDecimals={false} />
+                    <Tooltip />
+                    <Bar dataKey="total" fill="hsl(var(--accent))" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-sm text-muted-foreground flex items-center justify-center h-full">Sem dados.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle className="text-base">Distribuição por Modalidade</CardTitle></CardHeader>
+            <CardContent className="h-[250px]">
+              {modalityDistribution.data && modalityDistribution.data.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={modalityDistribution.data} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis type="number" allowDecimals={false} />
+                    <YAxis dataKey="name" type="category" width={120} className="text-xs" />
+                    <Tooltip />
+                    <Bar dataKey="total" fill="hsl(var(--primary))" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-sm text-muted-foreground flex items-center justify-center h-full">Sem dados de modalidade.</p>
               )}
             </CardContent>
           </Card>

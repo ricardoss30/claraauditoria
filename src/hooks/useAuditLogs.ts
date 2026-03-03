@@ -22,7 +22,26 @@ export function useAuditLogs() {
 
       const { data, error, count } = await q;
       if (error) throw error;
-      return { data: data ?? [], total: count ?? 0 };
+
+      // Fetch user names for all user_ids
+      const userIds = [...new Set((data ?? []).map(l => l.user_id).filter(Boolean))] as string[];
+      let profileMap: Record<string, string> = {};
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("user_id, full_name")
+          .in("user_id", userIds);
+        if (profiles) {
+          profiles.forEach(p => { profileMap[p.user_id] = p.full_name || ""; });
+        }
+      }
+
+      const enrichedData = (data ?? []).map(l => ({
+        ...l,
+        user_name: l.user_id ? (profileMap[l.user_id] || l.user_id.substring(0, 8)) : null,
+      }));
+
+      return { data: enrichedData, total: count ?? 0 };
     },
   });
 

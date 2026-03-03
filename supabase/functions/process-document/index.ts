@@ -228,8 +228,27 @@ serve(async (req) => {
       });
     }
 
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
     const { document_id, content: rawContent } = await req.json();
     if (!document_id) throw new Error("document_id is required");
+
+    // Check cache first for deterministic results
+    const { data: cached } = await supabase
+      .from("text_analysis_cache")
+      .select("result")
+      .eq("document_id", document_id)
+      .eq("analysis_type", "full_extraction")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    
+    if (cached?.result && !rawContent) {
+      console.log("Returning cached analysis for document:", document_id);
+      const cachedResult = cached.result as any;
+      return new Response(JSON.stringify({ success: true, risk_score: cachedResult.risk_score, alerts_count: cachedResult.alerts?.length || 0, cached: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     // Update status to processing
     await supabase.from("procurement_documents").update({ status: "processing" }).eq("id", document_id);
@@ -274,6 +293,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
+        temperature: 0,
         messages: [
           {
             role: "system",
@@ -449,11 +469,13 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}`,
         }
       }
 
-      // Log audit
+      // Log audit with IP
       await supabase.from("audit_logs").insert({
         action: "upload",
         resource_type: "document",
         resource_id: document_id,
+        user_id: callerId,
+        ip_address: clientIp,
         details: { risk_score, alerts_count: alerts.length },
       });
     }

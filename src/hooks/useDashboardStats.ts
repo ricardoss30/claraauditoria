@@ -93,5 +93,45 @@ export function useDashboardStats() {
     },
   });
 
-  return { documentsProcessed, alertsPending, activeRules, accuracy, alertsByCategory, documentsOverTime, recentAlerts };
+  const avgRiskScore = useQuery({
+    queryKey: ["stats", "avg-risk-score"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("procurement_documents")
+        .select("risk_score")
+        .eq("status", "processed")
+        .not("risk_score", "is", null);
+      if (!data || data.length === 0) return null;
+      const sum = data.reduce((acc, d) => acc + (d.risk_score || 0), 0);
+      return Math.round(sum / data.length);
+    },
+  });
+
+  const documentsByStatus = useQuery({
+    queryKey: ["stats", "documents-by-status"],
+    queryFn: async () => {
+      const { data } = await supabase.from("procurement_documents").select("status");
+      if (!data) return [];
+      const counts: Record<string, number> = {};
+      data.forEach((d) => { counts[d.status] = (counts[d.status] || 0) + 1; });
+      const labels: Record<string, string> = { pending: "Pendente", processing: "Processando", processed: "Processado", error: "Erro" };
+      return Object.entries(counts).map(([status, total]) => ({ name: labels[status] || status, total }));
+    },
+  });
+
+  const modalityDistribution = useQuery({
+    queryKey: ["stats", "modality-distribution"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("procurement_documents")
+        .select("modality")
+        .not("modality", "is", null);
+      if (!data) return [];
+      const counts: Record<string, number> = {};
+      data.forEach((d) => { if (d.modality) counts[d.modality] = (counts[d.modality] || 0) + 1; });
+      return Object.entries(counts).map(([name, total]) => ({ name, total }));
+    },
+  });
+
+  return { documentsProcessed, alertsPending, activeRules, accuracy, alertsByCategory, documentsOverTime, recentAlerts, avgRiskScore, documentsByStatus, modalityDistribution };
 }
