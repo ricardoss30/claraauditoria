@@ -1,26 +1,28 @@
 
 
-## Análise
+## Analise do Erro "The object exceeded the maximum allowed size"
 
-O erro "The object exceeded the maximum allowed size" é provavelmente uma mensagem enganosa do Supabase Storage para paths com caracteres inválidos (acentos, espaços). O `sanitizePath` já foi adicionado ao service, mas preciso verificar se está sendo aplicado corretamente em todos os pontos.
+### Diagnostico
 
-Analisando o fluxo:
-1. `handleCreateFolder` → `createFolderMutation` → `createFolder(path)` → `sanitizePath(path)` ✅
-2. Porém, ao navegar dentro de pastas existentes (que têm nomes com espaços como "Manual de Compras"), o `currentPath` armazena o nome original não-sanitizado. Ao criar subpastas, o path fica `Manual de Compras/nova-pasta`, misturando segmentos sanitizados e não-sanitizados.
+Investigando o banco de dados:
+- O bucket `base_conhecimento` tem limite de 50MB — o placeholder de 1 byte nao deveria exceder isso
+- As pastas existentes ("Manual de Compras", "Guia de Auditoria") foram criadas COM espacos e acentos (antes da sanitizacao)
+- Existem **duas politicas INSERT duplicadas** para o bucket `base_conhecimento`:
+  1. "Authenticated users can upload"
+  2. "Authenticated users can upload to base_conhecimento"
+- As RLS policies parecem corretas
 
-### Correções
+O erro provavelmente vem de um conflito com o `upsert: true` e o Blob. A combinacao de `new Blob([" "])` com `contentType: "text/plain"` e `upsert: true` pode estar causando conflito em certas versoes do Supabase Storage SDK.
 
-1. **`src/pages/Sources.tsx`** — Aplicar `sanitizePath` ao construir o path de upload de arquivos (linha ~101):
-   ```typescript
-   const path = sanitizePath(folder ? `${folder}/${file.name}` : file.name);
-   ```
-   Atualmente o path do upload no handler só sanitiza no service, mas o path passado ao `embedFile` não é sanitizado.
+### Correcoes
 
-2. **`src/pages/Sources.tsx`** — Sanitizar o path do embed para consistência (linhas 100-103), pois `embedFile` recebe o path original com acentos.
+1. **`src/services/knowledgeBaseService.ts`** — Na funcao `createFolder`:
+   - Trocar `new Blob([" "])` por `new Blob([""], { type: "text/plain" })` (string vazia, tipo embutido no blob)
+   - Remover o `contentType` separado do options
+   - Adicionar tratamento de erro mais detalhado com log para diagnostico
 
-3. **`src/pages/Sources.tsx`** — Sanitizar o `folderName` no `handleCreateFolder` e o path nos `handleDelete`/`handleDownload`/`handlePreview` para que o path enviado ao Storage seja sempre limpo.
+2. **Remover politicas INSERT duplicadas** via migracao SQL:
+   - Remover a politica "Authenticated users can upload" (duplicada) que pode estar causando conflito
 
-4. **`src/services/knowledgeBaseService.ts`** — Aplicar `sanitizePath` também em `deleteFile`, `deleteFolder`, e `getFileUrl` para garantir que TODOS os paths passados ao Storage sejam sanitizados, independentemente da origem.
-
-Essas mudanças garantem que nenhum path com acentos ou espaços chegue à API do Supabase Storage.
+3. **`src/services/knowledgeBaseService.ts`** — Adicionar fallback: se o upload com `upsert: true` falhar, tentar sem upsert
 
