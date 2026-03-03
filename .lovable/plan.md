@@ -1,13 +1,16 @@
 
 
-## Plano: Remover opção de cadastro da tela de login
+## Análise do erro ao criar pasta
 
-Remover o sistema de abas (Entrar/Cadastrar) da página `src/pages/Auth.tsx`, mantendo apenas o formulário de login direto, sem tabs.
+### Problema identificado
+A função `createFolder` em `knowledgeBaseService.ts` faz upload de um `new Blob([""])` (blob vazio, 0 bytes) como placeholder. O Supabase Storage pode rejeitar uploads de arquivos com tamanho zero. Além disso, o toast de erro não mostra a mensagem real do Supabase, dificultando o diagnóstico.
 
-### Alterações
-**`src/pages/Auth.tsx`**:
-- Remover o componente `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent`
-- Remover o formulário de cadastro e o state `fullName`
-- Remover a função `handleSignup`
-- Manter apenas o formulário de login diretamente dentro do `CardContent`
+### Correções
+
+**1. `src/services/knowledgeBaseService.ts` — função `createFolder`**
+- Trocar `new Blob([""])` por `new Blob([" "])` (1 byte) para evitar rejeição de upload vazio
+- Adicionar `contentType: "text/plain"` nas opções do upload
+
+**2. `src/pages/Sources.tsx` — função `handleCreateFolder`**
+- Melhorar o toast de erro para exibir a mensagem real do Supabase (`error.message`) em vez de texto genérico, facilitando diagnóstico futuro
 
