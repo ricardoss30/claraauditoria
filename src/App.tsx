@@ -22,6 +22,7 @@ import UsersManagement from "./pages/settings/UsersManagement";
 import AgentPrompt from "./pages/settings/AgentPrompt";
 import UserPrompt from "./pages/settings/UserPrompt";
 import StructuredOutput from "./pages/settings/StructuredOutput";
+import Trends from "./pages/Trends";
 
 const queryClient = new QueryClient();
 
@@ -49,6 +50,7 @@ const App = () => (
                 <Route path="prompts/user" element={<AdminOnlyRoute><UserPrompt /></AdminOnlyRoute>} />
                 <Route path="prompts/structured-output" element={<AdminOnlyRoute><StructuredOutput /></AdminOnlyRoute>} />
               </Route>
+              <Route path="/trends" element={<ProtectedRoute><Trends /></ProtectedRoute>} />
               <Route path="/audit" element={<ProtectedRoute><AuditLogs /></ProtectedRoute>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
