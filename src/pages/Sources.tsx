@@ -111,7 +111,7 @@ export default function Sources() {
     const path = folder ? `${folder}/${folderName.trim()}` : folderName.trim();
     createFolderMutation.mutate(path, {
       onSuccess: () => { toast.success("Pasta criada"); setFolderOpen(false); setFolderName(""); },
-      onError: () => toast.error("Erro ao criar pasta"),
+      onError: (err: any) => toast.error(err?.message || "Erro ao criar pasta"),
     });
   };
 
