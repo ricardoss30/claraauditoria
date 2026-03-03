@@ -1,21 +1,13 @@
 
 
-## Plano: Adicionar logo CLARA no PDF do relatório de auditoria
+## Plano: Remover opção de cadastro da tela de login
 
-### O que será feito
-Copiar a logo enviada para `public/images/clara-logo.png` e incluí-la no topo do HTML gerado pela função `handleExportPDF` em `AuditReport.tsx`. A logo será convertida para base64 inline no momento da exportação para garantir que apareça corretamente no PDF impresso.
+Remover o sistema de abas (Entrar/Cadastrar) da página `src/pages/Auth.tsx`, mantendo apenas o formulário de login direto, sem tabs.
 
-### Implementação
-
-**1. Copiar logo para o projeto**
-- Salvar `user-uploads://Modelo_1_SEM_FUNDO.png` em `public/images/clara-logo.png`
-
-**2. Editar `src/pages/AuditReport.tsx` — função `handleExportPDF`**
-- Antes de gerar o HTML, fazer fetch da imagem e convertê-la para base64 (data URI)
-- Inserir a logo centralizada acima do título `<h1>` no template HTML
-- Adicionar estilos para a logo (centralizada, largura ~200px, margem inferior)
-
-### Arquivos
-- **Copiar**: logo para `public/images/clara-logo.png`
-- **Editar**: `src/pages/AuditReport.tsx` (handleExportPDF)
+### Alterações
+**`src/pages/Auth.tsx`**:
+- Remover o componente `Tabs`, `TabsList`, `TabsTrigger`, `TabsContent`
+- Remover o formulário de cadastro e o state `fullName`
+- Remover a função `handleSignup`
+- Manter apenas o formulário de login diretamente dentro do `CardContent`
 
