@@ -1,27 +1,28 @@
 
 
-## Plan: Add City (Municipio) Filter to PNCP Import
+## Plan: Add "Todas" (All Modalities) Option to PNCP Import
 
-The PNCP API `/v1/contratacoes/publicacao` does not support a direct municipality parameter. The municipality info is available in the response data (inside `unidadeOrgao` or `orgaoEntidade` objects). The solution is to add a text input filter and do server-side filtering after fetching from PNCP.
+Since the PNCP API requires `codigoModalidadeContratacao` as a mandatory parameter, fetching all modalities requires making parallel requests for each modality code and merging the results.
 
 ### Changes
 
 **1. `src/pages/ImportPNCP.tsx`**
-- Add a new `municipio` state (text input)
-- Add an `Input` field labeled "Município" in the filter row (between UF and Modalidade)
-- Pass `municipio` in the search params
-- Add a "Município" column to the results table
+- Add a "Todas" option (value `"all"`) at the top of the modality `Select` dropdown
+- Change default modality from `"6"` to `"all"`
+- Remove the mandatory modality validation (since "all" is now valid)
 
-**2. `src/hooks/useImportPNCP.ts`**
-- Add `municipio?: string` to `PNCPSearchParams` interface
-- Add `municipality: string` to `PNCPItem` interface
+**2. `supabase/functions/import-pncp/index.ts` — `handleSearch`**
+- Remove the check that rejects missing `codigoModalidadeContratacao`
+- If `codigoModalidadeContratacao` is `"all"` or absent:
+  - Make parallel `fetch` calls for all 13 modality codes (1-13)
+  - Merge all results into a single array
+  - Sort by `dataPublicacaoPncp` descending
+  - Apply municipality filter if provided
+  - Pagination becomes client-side within the merged set (slice by page)
+- If a specific modality is provided, keep existing single-call behavior
 
-**3. `supabase/functions/import-pncp/index.ts`**
-- Extract `municipio` from search params
-- After fetching PNCP results, extract municipality name from each item's `unidadeOrgao.municipioNome` or `orgaoEntidade` data
-- Include municipality in the mapped response items
-- If `municipio` filter is provided, filter results case-insensitively by municipality name (partial match)
-
-### Technical Note
-Since filtering happens after the API call, filtered pages may return fewer than 20 items. This is a known trade-off since the external API doesn't support municipality filtering natively.
+### Technical Notes
+- Each parallel call uses `tamanhoPagina=20`, so up to 260 items may be fetched per search. This is acceptable for a filtered search with date range + UF constraints.
+- Pagination for "all modalities" mode will be approximate since we aggregate across multiple API responses. Total pages will be calculated from the merged item count.
+- Failed individual modality calls are silently skipped (some modalities may have zero results for a given period/UF).
 
