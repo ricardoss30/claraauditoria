@@ -98,8 +98,12 @@ async function fetchSingleModality(baseParams: Record<string, string>) {
   const url = new URL("https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao");
   for (const [k, v] of Object.entries(baseParams)) url.searchParams.set(k, v);
 
+  console.log("fetchSingleModality URL:", url.toString());
   const resp = await fetch(url.toString(), { headers: { Accept: "application/json" } });
-  if (!resp.ok) return [];
+  if (!resp.ok) {
+    console.error("fetchSingleModality error:", resp.status, await resp.text().catch(() => ""));
+    return [];
+  }
 
   const text = await resp.text();
   if (!text.trim()) return [];
@@ -134,6 +138,7 @@ async function handleSearch(params: any, cors: Record<string, string>) {
     const baseParams: Record<string, string> = {
       dataInicial,
       dataFinal,
+      pagina: "1",
       tamanhoPagina: "20",
     };
     if (uf && uf !== "all") baseParams.uf = uf;
