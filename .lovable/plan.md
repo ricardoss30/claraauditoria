@@ -1,29 +1,27 @@
 
 
-## Diagnostico da Importacao PNCP
+## Plan: Add City (Municipio) Filter to PNCP Import
 
-### Problemas encontrados
+The PNCP API `/v1/contratacoes/publicacao` does not support a direct municipality parameter. The municipality info is available in the response data (inside `unidadeOrgao` or `orgaoEntidade` objects). The solution is to add a text input filter and do server-side filtering after fetching from PNCP.
 
-1. **API PNCP exige `codigoModalidadeContratacao`**: O parametro é obrigatorio na API real, mas a edge function o trata como opcional. Quando o usuario busca sem informar a modalidade, a API retorna erro 400 ("Required parameter 'codigoModalidadeContratacao' is not present"). A funcao captura o erro e retorna lista vazia silenciosamente - o usuario acha que nao ha resultados.
+### Changes
 
-2. **`tamanhoPagina` minimo é 10**: A API exige `tamanhoPagina >= 10`. O valor atual de `20` está ok, mas foi necessario confirmar.
+**1. `src/pages/ImportPNCP.tsx`**
+- Add a new `municipio` state (text input)
+- Add an `Input` field labeled "Município" in the filter row (between UF and Modalidade)
+- Pass `municipio` in the search params
+- Add a "Município" column to the results table
 
-3. **Mapeamento de campos da resposta pode estar incorreto**: Preciso validar que `data.data` e `data.totalPaginas` correspondem à estrutura real da resposta da API. A API pode usar campos como `items` e `totalPages` em vez de `data` e `totalPaginas`.
+**2. `src/hooks/useImportPNCP.ts`**
+- Add `municipio?: string` to `PNCPSearchParams` interface
+- Add `municipality: string` to `PNCPItem` interface
 
-### Correcoes
+**3. `supabase/functions/import-pncp/index.ts`**
+- Extract `municipio` from search params
+- After fetching PNCP results, extract municipality name from each item's `unidadeOrgao.municipioNome` or `orgaoEntidade` data
+- Include municipality in the mapped response items
+- If `municipio` filter is provided, filter results case-insensitively by municipality name (partial match)
 
-1. **`supabase/functions/import-pncp/index.ts`** — Na funcao `handleSearch`:
-   - Tornar `codigoModalidadeContratacao` obrigatorio OU definir um valor padrao (ex: buscar todas as modalidades com multiplas chamadas)
-   - Melhor abordagem: retornar erro explicito quando o parametro nao for informado, em vez de silenciar o erro da API
-
-2. **`src/pages/ImportPNCP.tsx`** — Melhorar a UI:
-   - Trocar o campo de texto livre da modalidade por um `Select` com as opcoes documentadas da API (1-Leilao, 2-Dialogo Competitivo, 3-Concurso, 4-Concorrencia, 5-Pregao, 6-Pregao Eletronico, 8-Dispensa, 9-Inexigibilidade)
-   - Tornar a modalidade obrigatoria no formulario de busca
-   - Mostrar mensagem de erro clara quando a API retornar vazio vs erro
-
-3. **`supabase/functions/import-pncp/index.ts`** — Melhorar tratamento de erros:
-   - Logar e propagar o erro real da API PNCP em vez de retornar silenciosamente lista vazia
-   - Validar a estrutura da resposta antes de mapear os campos
-
-4. **`src/hooks/useImportPNCP.ts`** — Sem alteracoes necessarias, a logica de hook está correta.
+### Technical Note
+Since filtering happens after the API call, filtered pages may return fewer than 20 items. This is a known trade-off since the external API doesn't support municipality filtering natively.
 
