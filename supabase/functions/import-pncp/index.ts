@@ -99,7 +99,15 @@ async function fetchSingleModality(baseParams: Record<string, string>) {
   for (const [k, v] of Object.entries(baseParams)) url.searchParams.set(k, v);
 
   console.log("fetchSingleModality URL:", url.toString());
-  const resp = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+  let resp = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+
+  // Retry once on 429
+  if (resp.status === 429) {
+    console.warn("fetchSingleModality 429, retrying in 1s...");
+    await new Promise(r => setTimeout(r, 1000));
+    resp = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+  }
+
   if (!resp.ok) {
     console.error("fetchSingleModality error:", resp.status, await resp.text().catch(() => ""));
     return [];
@@ -143,11 +151,12 @@ async function handleSearch(params: any, cors: Record<string, string>) {
     };
     if (uf && uf !== "all") baseParams.uf = uf;
 
-    const promises = Array.from({ length: 13 }, (_, i) =>
-      fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i + 1) })
-    );
-    const results = await Promise.all(promises);
-    const allRaw = results.flat();
+    const allRaw: any[] = [];
+    for (let i = 1; i <= 13; i++) {
+      const items = await fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i) });
+      allRaw.push(...items);
+      if (i < 13) await new Promise(r => setTimeout(r, 300));
+    }
 
     // Sort by publication date descending
     allRaw.sort((a: any, b: any) => {
