@@ -58,6 +58,10 @@ export default function ImportPNCP() {
       toast({ title: "Modalidade obrigatória", description: "Selecione uma modalidade para buscar.", variant: "destructive" });
       return;
     }
+    if (startDate > endDate) {
+      toast({ title: "Período inválido", description: "A data inicial deve ser anterior ou igual à data final.", variant: "destructive" });
+      return;
+    }
     const diffDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
     if (diffDays > 365) {
       toast({ title: "Período inválido", description: "O período máximo de busca é de 365 dias.", variant: "destructive" });
