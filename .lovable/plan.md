@@ -1,27 +1,34 @@
 
 
-## Bug: "Todas" Modalities Returns Empty Results
+## Issue: 429 Too Many Requests from PNCP API
 
-### Root Cause
+The edge function logs clearly show that when "Todas" is selected, all 13 modality requests fire simultaneously via `Promise.all`, and the PNCP API rate-limits them with HTTP 429 responses. This means most results are silently dropped.
 
-In the `handleSearch` "all" modalities path (line 134-137), the `baseParams` passed to `fetchSingleModality` is missing the `pagina` parameter. The PNCP API requires `pagina` and returns an error when it's absent. Since `fetchSingleModality` silently returns `[]` on any error (line 102), all 13 parallel calls return empty arrays, resulting in zero items.
+### Fix: Sequential fetching with delay
 
-Evidence: Single modality path (line 168) explicitly sets `pagina` and works. The "all" path does not, and always returns empty.
+**`supabase/functions/import-pncp/index.ts`**
 
-### Fix
-
-**`supabase/functions/import-pncp/index.ts`** - Add `pagina: "1"` to `baseParams` in the "all" modalities block (around line 137):
+Replace the parallel `Promise.all` approach with sequential requests that include a small delay between each call to avoid rate limiting:
 
 ```typescript
-const baseParams: Record<string, string> = {
-  dataInicial,
-  dataFinal,
-  pagina: "1",
-  tamanhoPagina: "20",
-};
+// Instead of:
+const promises = Array.from({ length: 13 }, (_, i) =>
+  fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i + 1) })
+);
+const results = await Promise.all(promises);
+
+// Use sequential with delay:
+const allRaw: any[] = [];
+for (let i = 1; i <= 13; i++) {
+  const items = await fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i) });
+  allRaw.push(...items);
+  if (i < 13) await new Promise(r => setTimeout(r, 300)); // 300ms delay between requests
+}
 ```
 
-Also add logging inside `fetchSingleModality` to aid future debugging (log the URL and any non-ok status).
+Also add retry logic in `fetchSingleModality` for 429 responses: wait 1 second and retry once.
 
-Redeploy the `import-pncp` edge function after the fix.
+### Scope
+- Single file change: `supabase/functions/import-pncp/index.ts`
+- Redeploy the edge function after the fix
 
