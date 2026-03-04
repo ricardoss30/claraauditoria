@@ -44,7 +44,7 @@ export default function ImportPNCP() {
   const [endDate, setEndDate] = useState<Date>(new Date());
   const [uf, setUf] = useState<string>("");
   const [municipio, setMunicipio] = useState<string>("");
-  const [modality, setModality] = useState<string>("6");
+  const [modality, setModality] = useState<string>("all");
 
   const lastSearchParams = useRef<PNCPSearchParams | null>(null);
 
@@ -54,10 +54,6 @@ export default function ImportPNCP() {
   const totalPages = searchResults?.totalPages ?? 1;
 
   const handleSearch = () => {
-    if (!modality) {
-      toast({ title: "Modalidade obrigatória", description: "Selecione uma modalidade para buscar.", variant: "destructive" });
-      return;
-    }
     if (startDate > endDate) {
       toast({ title: "Período inválido", description: "A data inicial deve ser anterior ou igual à data final.", variant: "destructive" });
       return;
@@ -177,6 +173,7 @@ export default function ImportPNCP() {
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="all">Todas</SelectItem>
                     {MODALITY_OPTIONS.map((m) => (
                       <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
                     ))}

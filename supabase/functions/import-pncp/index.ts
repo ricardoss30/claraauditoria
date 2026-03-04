@@ -73,15 +73,47 @@ Deno.serve(async (req) => {
   }
 });
 
+function mapItems(rawItems: any[]) {
+  return rawItems.map((item: any) => ({
+    id: `${item.orgaoEntidade?.cnpj || ""}-${item.anoCompra || ""}-${item.sequencialCompra || ""}`,
+    title: item.objetoCompra || item.descricao || "Sem título",
+    agency: item.orgaoEntidade?.razaoSocial || "—",
+    modality: item.modalidadeNome || "—",
+    value: item.valorTotalEstimado || null,
+    publishedAt: item.dataPublicacaoPncp || "—",
+    uf: item.unidadeOrgao?.ufSigla || item.orgaoEntidade?.ufSigla || "—",
+    municipality: item.unidadeOrgao?.municipioNome || item.orgaoEntidade?.municipioNome || "—",
+    _raw: item,
+  }));
+}
+
+function applyFilters(items: any[], municipio?: string) {
+  const municipioFilter = municipio?.toLowerCase();
+  return municipioFilter
+    ? items.filter((i: any) => i.municipality.toLowerCase().includes(municipioFilter))
+    : items;
+}
+
+async function fetchSingleModality(baseParams: Record<string, string>) {
+  const url = new URL("https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao");
+  for (const [k, v] of Object.entries(baseParams)) url.searchParams.set(k, v);
+
+  const resp = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+  if (!resp.ok) return [];
+
+  const text = await resp.text();
+  if (!text.trim()) return [];
+
+  try {
+    const data = JSON.parse(text);
+    return data.data || data.items || [];
+  } catch {
+    return [];
+  }
+}
+
 async function handleSearch(params: any, cors: Record<string, string>) {
   const { dataInicial, dataFinal, uf, codigoModalidadeContratacao, municipio, pagina = 1 } = params;
-
-  if (!codigoModalidadeContratacao) {
-    return new Response(
-      JSON.stringify({ error: "O campo 'Modalidade' é obrigatório para buscar no PNCP." }),
-      { status: 400, headers: { ...cors, "Content-Type": "application/json" } }
-    );
-  }
 
   // Validate date range <= 365 days
   const parseDate = (s: string) => new Date(`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`);
@@ -95,6 +127,45 @@ async function handleSearch(params: any, cors: Record<string, string>) {
     );
   }
 
+  const isAll = !codigoModalidadeContratacao || codigoModalidadeContratacao === "all";
+
+  if (isAll) {
+    // Parallel fetch for all 13 modalities
+    const baseParams: Record<string, string> = {
+      dataInicial,
+      dataFinal,
+      tamanhoPagina: "20",
+    };
+    if (uf && uf !== "all") baseParams.uf = uf;
+
+    const promises = Array.from({ length: 13 }, (_, i) =>
+      fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i + 1) })
+    );
+    const results = await Promise.all(promises);
+    const allRaw = results.flat();
+
+    // Sort by publication date descending
+    allRaw.sort((a: any, b: any) => {
+      const da = a.dataPublicacaoPncp || "";
+      const db = b.dataPublicacaoPncp || "";
+      return db.localeCompare(da);
+    });
+
+    const items = mapItems(allRaw);
+    const filtered = applyFilters(items, municipio);
+
+    const pageSize = 20;
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    const start = (pagina - 1) * pageSize;
+    const paged = filtered.slice(start, start + pageSize);
+
+    return new Response(
+      JSON.stringify({ items: paged, totalPages, currentPage: pagina }),
+      { headers: { ...cors, "Content-Type": "application/json" } }
+    );
+  }
+
+  // Single modality — existing behavior
   const url = new URL("https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao");
   url.searchParams.set("dataInicial", dataInicial);
   url.searchParams.set("dataFinal", dataFinal);
@@ -105,10 +176,7 @@ async function handleSearch(params: any, cors: Record<string, string>) {
 
   console.log("PNCP search URL:", url.toString());
 
-  const resp = await fetch(url.toString(), {
-    headers: { Accept: "application/json" },
-  });
-
+  const resp = await fetch(url.toString(), { headers: { Accept: "application/json" } });
   if (!resp.ok) {
     const text = await resp.text();
     console.error("PNCP API error:", resp.status, text);
@@ -119,8 +187,6 @@ async function handleSearch(params: any, cors: Record<string, string>) {
   }
 
   const responseText = await resp.text();
-  console.log("PNCP response length:", responseText.length, "preview:", responseText.substring(0, 300));
-
   if (!responseText.trim()) {
     return new Response(
       JSON.stringify({ items: [], totalPages: 0, currentPage: pagina }),
@@ -139,33 +205,13 @@ async function handleSearch(params: any, cors: Record<string, string>) {
     );
   }
 
-  console.log("PNCP response keys:", Object.keys(data));
   const rawItems = data.data || data.items || [];
   const totalPagesVal = data.totalPaginas || data.totalPages || 1;
-
-  const items = rawItems.map((item: any) => ({
-    id: `${item.orgaoEntidade?.cnpj || ""}-${item.anoCompra || ""}-${item.sequencialCompra || ""}`,
-    title: item.objetoCompra || item.descricao || "Sem título",
-    agency: item.orgaoEntidade?.razaoSocial || "—",
-    modality: item.modalidadeNome || "—",
-    value: item.valorTotalEstimado || null,
-    publishedAt: item.dataPublicacaoPncp || "—",
-    uf: item.unidadeOrgao?.ufSigla || item.orgaoEntidade?.ufSigla || "—",
-    municipality: item.unidadeOrgao?.municipioNome || item.orgaoEntidade?.municipioNome || "—",
-    _raw: item,
-  }));
-
-  const municipioFilter = municipio?.toLowerCase();
-  const filteredItems = municipioFilter
-    ? items.filter((i: any) => i.municipality.toLowerCase().includes(municipioFilter))
-    : items;
+  const items = mapItems(rawItems);
+  const filteredItems = applyFilters(items, municipio);
 
   return new Response(
-    JSON.stringify({
-      items: filteredItems,
-      totalPages: totalPagesVal,
-      currentPage: pagina,
-    }),
+    JSON.stringify({ items: filteredItems, totalPages: totalPagesVal, currentPage: pagina }),
     { headers: { ...cors, "Content-Type": "application/json" } }
   );
 }
