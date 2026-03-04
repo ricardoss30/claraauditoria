@@ -8,6 +8,7 @@ export interface PNCPSearchParams {
   dataFinal: string;
   uf?: string;
   codigoModalidadeContratacao?: string;
+  municipio?: string;
   pagina?: number;
 }
 
@@ -19,6 +20,7 @@ export interface PNCPItem {
   value: number | null;
   publishedAt: string;
   uf: string;
+  municipality: string;
 }
 
 export interface PNCPSearchResult {

@@ -43,6 +43,7 @@ export default function ImportPNCP() {
   const [startDate, setStartDate] = useState<Date>(subDays(new Date(), 7));
   const [endDate, setEndDate] = useState<Date>(new Date());
   const [uf, setUf] = useState<string>("");
+  const [municipio, setMunicipio] = useState<string>("");
   const [modality, setModality] = useState<string>("6");
 
   const lastSearchParams = useRef<PNCPSearchParams | null>(null);
@@ -69,6 +70,7 @@ export default function ImportPNCP() {
       codigoModalidadeContratacao: modality,
     };
     if (uf && uf !== "all") params.uf = uf;
+    if (municipio.trim()) params.municipio = municipio.trim();
     lastSearchParams.current = params;
     searchMutation.mutate(params);
   };
@@ -155,6 +157,16 @@ export default function ImportPNCP() {
               </div>
 
               <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground">Município</label>
+                <Input
+                  placeholder="Ex: Salvador"
+                  value={municipio}
+                  onChange={(e) => setMunicipio(e.target.value)}
+                  className="w-44"
+                />
+              </div>
+
+              <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground">Modalidade *</label>
                 <Select value={modality} onValueChange={setModality}>
                   <SelectTrigger className="w-56">
@@ -201,6 +213,7 @@ export default function ImportPNCP() {
                     <TableHead>Título</TableHead>
                     <TableHead>Órgão</TableHead>
                     <TableHead>UF</TableHead>
+                    <TableHead>Município</TableHead>
                     <TableHead>Valor Estimado</TableHead>
                     <TableHead>Publicação</TableHead>
                   </TableRow>
@@ -217,6 +230,7 @@ export default function ImportPNCP() {
                       <TableCell className="font-medium max-w-xs truncate">{item.title}</TableCell>
                       <TableCell className="text-muted-foreground max-w-[200px] truncate">{item.agency}</TableCell>
                       <TableCell>{item.uf}</TableCell>
+                      <TableCell className="text-muted-foreground max-w-[200px] truncate">{item.municipality}</TableCell>
                       <TableCell>{formatCurrency(item.value)}</TableCell>
                       <TableCell className="text-muted-foreground">{item.publishedAt}</TableCell>
                     </TableRow>

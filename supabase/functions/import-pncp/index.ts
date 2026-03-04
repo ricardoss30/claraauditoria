@@ -74,7 +74,7 @@ Deno.serve(async (req) => {
 });
 
 async function handleSearch(params: any, cors: Record<string, string>) {
-  const { dataInicial, dataFinal, uf, codigoModalidadeContratacao, pagina = 1 } = params;
+  const { dataInicial, dataFinal, uf, codigoModalidadeContratacao, municipio, pagina = 1 } = params;
 
   if (!codigoModalidadeContratacao) {
     return new Response(
@@ -151,12 +151,18 @@ async function handleSearch(params: any, cors: Record<string, string>) {
     value: item.valorTotalEstimado || null,
     publishedAt: item.dataPublicacaoPncp || "—",
     uf: item.unidadeOrgao?.ufSigla || item.orgaoEntidade?.ufSigla || "—",
+    municipality: item.unidadeOrgao?.municipioNome || item.orgaoEntidade?.municipioNome || "—",
     _raw: item,
   }));
 
+  const municipioFilter = municipio?.toLowerCase();
+  const filteredItems = municipioFilter
+    ? items.filter((i: any) => i.municipality.toLowerCase().includes(municipioFilter))
+    : items;
+
   return new Response(
     JSON.stringify({
-      items,
+      items: filteredItems,
       totalPages: totalPagesVal,
       currentPage: pagina,
     }),
