@@ -69,6 +69,8 @@ serve(async (req) => {
       }
     } catch { /* ignore */ }
 
+    const auditCriteria = (doc.extracted_data as any)?.audit_criteria || "";
+
     const valor = doc.estimated_value != null
       ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(doc.estimated_value)
       : "Não informado";
