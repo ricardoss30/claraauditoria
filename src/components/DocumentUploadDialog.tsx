@@ -118,7 +118,7 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
                     </>
                   )}
                 </div>
-                <Button className="w-full" disabled={!file} onClick={() => handleSubmit("file")}>
+                <Button className="w-full" disabled={!file || !auditCriteria.trim()} onClick={() => handleSubmit("file")}>
                   <FileText className="h-4 w-4 mr-2" /> Processar Documento
                 </Button>
               </TabsContent>
