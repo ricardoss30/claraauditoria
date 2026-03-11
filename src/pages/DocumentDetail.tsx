@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { RiskScoreBadge } from "@/components/RiskScoreBadge";
 import { SeverityIndicator } from "@/components/SeverityIndicator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Download, RefreshCw, FileText, Database, Eye, CheckCircle, XCircle, ClipboardList } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw, FileText, Database, Eye, CheckCircle, XCircle, ClipboardList, ClipboardCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
 import { useToast } from "@/hooks/use-toast";
