@@ -27,7 +27,7 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
   const { upload, step, error, reset } = useDocumentUpload();
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
-  const [title, setTitle] = useState("");
+  const [auditCriteria, setAuditCriteria] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const isProcessing = ["uploading", "extracting", "analyzing"].includes(step);
