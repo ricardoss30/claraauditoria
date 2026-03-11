@@ -43,7 +43,7 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
     const id = await upload({
       file: mode === "file" ? file : null,
       text: mode === "text" ? text : undefined,
-      title: title || undefined,
+      audit_criteria: auditCriteria,
     });
     if (id) setTimeout(() => handleClose(), 1500);
   };
