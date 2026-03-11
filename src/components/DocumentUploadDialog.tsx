@@ -35,7 +35,7 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
   const handleClose = useCallback(() => {
     if (!isProcessing) {
       onOpenChange(false);
-      setTimeout(() => { reset(); setFile(null); setText(""); setTitle(""); }, 200);
+      setTimeout(() => { reset(); setFile(null); setText(""); setAuditCriteria(""); }, 200);
     }
   }, [isProcessing, onOpenChange, reset]);
 
