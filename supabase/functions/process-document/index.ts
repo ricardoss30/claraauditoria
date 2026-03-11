@@ -28,11 +28,30 @@ async function extractPdfText(supabase: any, documentId: string): Promise<string
   }
 
   const arrayBuffer = await fileData.arrayBuffer();
-  const { text: extractedText } = await extractText(new Uint8Array(arrayBuffer));
-  const text = Array.isArray(extractedText) ? extractedText.join("\n").trim() : (extractedText || "").toString().trim();
+  let text = "";
+  try {
+    const { text: extractedText } = await extractText(new Uint8Array(arrayBuffer));
+    text = Array.isArray(extractedText) ? extractedText.join("\n").trim() : (extractedText || "").toString().trim();
+  } catch (pdfErr: any) {
+    console.error("PDF extraction error (unpdf):", pdfErr.message);
+  }
 
   if (!text) {
-    throw new Error("Não foi possível extrair texto do PDF. O arquivo pode estar escaneado ou protegido.");
+    // Fallback: try reading as raw text (some PDFs have embedded text layers)
+    try {
+      const decoder = new TextDecoder("utf-8", { fatal: false });
+      const rawText = decoder.decode(new Uint8Array(arrayBuffer));
+      // Extract readable strings (sequences of printable chars)
+      const readable = rawText.match(/[\x20-\x7E\xC0-\xFF]{10,}/g);
+      if (readable && readable.length > 5) {
+        text = readable.join(" ").trim();
+        console.log(`Fallback text extraction: ${text.length} characters`);
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  if (!text) {
+    throw new Error("Não foi possível extrair texto do PDF. O arquivo pode estar escaneado ou protegido. Tente colar o texto manualmente na aba 'Colar Texto'.");
   }
 
   console.log(`PDF text extracted: ${text.length} characters from ${doc.file_url}`);
