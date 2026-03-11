@@ -13,7 +13,7 @@ export function useDocumentUpload() {
 
   const reset = () => { setStep("idle"); setError(null); };
 
-  const upload = async ({ file, text, title }: { file?: File | null; text?: string; title?: string }) => {
+  const upload = async ({ file, text, audit_criteria }: { file?: File | null; text?: string; audit_criteria?: string }) => {
     try {
       setError(null);
       setStep("uploading");
