@@ -99,6 +99,11 @@ ${alertsList || "Nenhum alerta identificado."}
 
 ${knowledgeContext ? `CONTEXTO NORMATIVO DA BASE DE CONHECIMENTO:\n${knowledgeContext}` : ""}
 
+${auditCriteria ? `CRITÉRIOS DE ANÁLISE DE AUDITORIA DEFINIDOS PELO AUDITOR:
+${auditCriteria}
+
+INSTRUÇÃO IMPORTANTE: Incorpore obrigatoriamente os critérios acima na seção "7. Constatações" (campo constatacoes). As constatações devem refletir a aplicação direta da metodologia e técnicas descritas pelo auditor, detalhando os achados conforme cada critério especificado.` : ""}
+
 Use a função generate_report para retornar o relatório estruturado em 12 seções.`;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");

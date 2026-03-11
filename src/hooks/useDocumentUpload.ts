@@ -61,7 +61,7 @@ export function useDocumentUpload() {
 
       // Call edge function
       const { data: fnData, error: fnErr } = await supabase.functions.invoke("process-document", {
-        body: { document_id: doc.id, content: rawContent },
+        body: { document_id: doc.id, content: rawContent, audit_criteria: audit_criteria || "" },
       });
 
       if (fnErr) {

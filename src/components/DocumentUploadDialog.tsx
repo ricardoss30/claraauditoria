@@ -125,7 +125,7 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
 
               <TabsContent value="text" className="space-y-3">
                 <Textarea placeholder="Cole o texto do edital aqui..." rows={8} value={text} onChange={(e) => setText(e.target.value)} />
-                <Button className="w-full" disabled={!text.trim()} onClick={() => handleSubmit("text")}>
+                <Button className="w-full" disabled={!text.trim() || !auditCriteria.trim()} onClick={() => handleSubmit("text")}>
                   <FileText className="h-4 w-4 mr-2" /> Processar Texto
                 </Button>
               </TabsContent>

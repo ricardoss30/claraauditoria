@@ -421,7 +421,7 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
       estimated_value: extracted_data.estimated_value || undefined,
       deadline_at: extracted_data.deadline || undefined,
       description: extracted_data.description || undefined,
-      extracted_data: { ...extracted_data, ...ragMetadata },
+      extracted_data: { ...extracted_data, ...ragMetadata, ...(audit_criteria ? { audit_criteria } : {}) },
       risk_score: Math.min(100, Math.max(0, Math.round(risk_score))),
       status: "processed",
     }).eq("id", document_id);
