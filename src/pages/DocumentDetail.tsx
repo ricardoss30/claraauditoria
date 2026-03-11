@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { RiskScoreBadge } from "@/components/RiskScoreBadge";
 import { SeverityIndicator } from "@/components/SeverityIndicator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Download, RefreshCw, FileText, Database, Eye, CheckCircle, XCircle, ClipboardList } from "lucide-react";
+import { ArrowLeft, Download, RefreshCw, FileText, Database, Eye, CheckCircle, XCircle, ClipboardList, ClipboardCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useDocumentUpload } from "@/hooks/useDocumentUpload";
 import { useToast } from "@/hooks/use-toast";
@@ -206,6 +206,15 @@ export default function DocumentDetail() {
             </Button>
           </div>
         </div>
+
+        {extracted?.audit_criteria && (
+          <Card>
+            <CardHeader><CardTitle className="text-base flex items-center gap-2"><ClipboardCheck className="h-4 w-4" /> Critérios de Análise de Auditoria</CardTitle></CardHeader>
+            <CardContent>
+              <pre className="text-sm whitespace-pre-wrap bg-muted p-4 rounded-md">{extracted.audit_criteria}</pre>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid md:grid-cols-2 gap-6">
           <Card>
