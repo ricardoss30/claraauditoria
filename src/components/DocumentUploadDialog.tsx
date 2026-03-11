@@ -81,8 +81,16 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
         ) : (
           <div className="space-y-4">
             <div>
-              <Label htmlFor="doc-title">Título (opcional)</Label>
-              <Input id="doc-title" placeholder="Será preenchido pela IA se vazio" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <Label htmlFor="audit-criteria">Critérios de Análise de Auditoria <span className="text-destructive">*</span></Label>
+              <Textarea
+                id="audit-criteria"
+                placeholder="Descreva a metodologia e técnicas de auditoria a serem aplicadas na análise deste documento. Ex: Verificar conformidade com a Lei 14.133/2021, analisar sobrepreço com base em tabela SINAPI..."
+                rows={4}
+                value={auditCriteria}
+                onChange={(e) => setAuditCriteria(e.target.value)}
+                className="mt-1"
+              />
+              <p className="text-xs text-muted-foreground mt-1">A IA usará esses critérios como parâmetros para avaliação do documento.</p>
             </div>
 
             <Tabs defaultValue="file">
