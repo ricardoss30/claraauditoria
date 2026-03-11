@@ -309,7 +309,7 @@ Analise o documento com atencao especial a:
 - Irregularidades em geral`}
 
 Regras ativas para analise:
-${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}`,
+${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${audit_criteria ? `\n\nCRITÉRIOS DE ANÁLISE DE AUDITORIA DEFINIDOS PELO AUDITOR (use como parâmetros prioritários para sua avaliação):\n${audit_criteria}` : ""}`,
           },
           {
             role: "user",
