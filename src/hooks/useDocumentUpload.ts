@@ -45,11 +45,12 @@ export function useDocumentUpload() {
       const { data: doc, error: insertErr } = await supabase
         .from("procurement_documents")
         .insert({
-          title: title || "Documento sem título",
+          title: "Documento sem título",
           status: "pending",
           file_url: fileUrl,
           raw_content: rawContent,
           created_by: user.user?.id,
+          extracted_data: audit_criteria ? { audit_criteria } : {},
         })
         .select("id")
         .single();
