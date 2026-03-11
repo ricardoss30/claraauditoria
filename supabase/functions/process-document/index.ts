@@ -229,7 +229,7 @@ serve(async (req) => {
     }
 
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
-    const { document_id, content: rawContent } = await req.json();
+    const { document_id, content: rawContent, audit_criteria } = await req.json();
     if (!document_id) throw new Error("document_id is required");
 
     // Check cache first for deterministic results
