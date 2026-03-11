@@ -69,6 +69,8 @@ serve(async (req) => {
       }
     } catch { /* ignore */ }
 
+    const auditCriteria = (doc.extracted_data as any)?.audit_criteria || "";
+
     const valor = doc.estimated_value != null
       ? new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(doc.estimated_value)
       : "Não informado";
@@ -96,6 +98,11 @@ ALERTAS DE RISCO IDENTIFICADOS:
 ${alertsList || "Nenhum alerta identificado."}
 
 ${knowledgeContext ? `CONTEXTO NORMATIVO DA BASE DE CONHECIMENTO:\n${knowledgeContext}` : ""}
+
+${auditCriteria ? `CRITÉRIOS DE ANÁLISE DE AUDITORIA DEFINIDOS PELO AUDITOR:
+${auditCriteria}
+
+INSTRUÇÃO IMPORTANTE: Incorpore obrigatoriamente os critérios acima na seção "7. Constatações" (campo constatacoes). As constatações devem refletir a aplicação direta da metodologia e técnicas descritas pelo auditor, detalhando os achados conforme cada critério especificado.` : ""}
 
 Use a função generate_report para retornar o relatório estruturado em 12 seções.`;
 

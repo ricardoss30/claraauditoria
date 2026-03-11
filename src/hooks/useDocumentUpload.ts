@@ -13,7 +13,7 @@ export function useDocumentUpload() {
 
   const reset = () => { setStep("idle"); setError(null); };
 
-  const upload = async ({ file, text, title }: { file?: File | null; text?: string; title?: string }) => {
+  const upload = async ({ file, text, audit_criteria }: { file?: File | null; text?: string; audit_criteria?: string }) => {
     try {
       setError(null);
       setStep("uploading");
@@ -45,11 +45,12 @@ export function useDocumentUpload() {
       const { data: doc, error: insertErr } = await supabase
         .from("procurement_documents")
         .insert({
-          title: title || "Documento sem título",
+          title: "Documento sem título",
           status: "pending",
           file_url: fileUrl,
           raw_content: rawContent,
           created_by: user.user?.id,
+          extracted_data: audit_criteria ? { audit_criteria } : {},
         })
         .select("id")
         .single();
@@ -60,7 +61,7 @@ export function useDocumentUpload() {
 
       // Call edge function
       const { data: fnData, error: fnErr } = await supabase.functions.invoke("process-document", {
-        body: { document_id: doc.id, content: rawContent },
+        body: { document_id: doc.id, content: rawContent, audit_criteria: audit_criteria || "" },
       });
 
       if (fnErr) {

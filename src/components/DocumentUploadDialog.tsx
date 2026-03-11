@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -27,7 +26,7 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
   const { upload, step, error, reset } = useDocumentUpload();
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
-  const [title, setTitle] = useState("");
+  const [auditCriteria, setAuditCriteria] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const isProcessing = ["uploading", "extracting", "analyzing"].includes(step);
@@ -35,7 +34,7 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
   const handleClose = useCallback(() => {
     if (!isProcessing) {
       onOpenChange(false);
-      setTimeout(() => { reset(); setFile(null); setText(""); setTitle(""); }, 200);
+      setTimeout(() => { reset(); setFile(null); setText(""); setAuditCriteria(""); }, 200);
     }
   }, [isProcessing, onOpenChange, reset]);
 
@@ -43,7 +42,7 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
     const id = await upload({
       file: mode === "file" ? file : null,
       text: mode === "text" ? text : undefined,
-      title: title || undefined,
+      audit_criteria: auditCriteria,
     });
     if (id) setTimeout(() => handleClose(), 1500);
   };
@@ -81,8 +80,16 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
         ) : (
           <div className="space-y-4">
             <div>
-              <Label htmlFor="doc-title">Título (opcional)</Label>
-              <Input id="doc-title" placeholder="Será preenchido pela IA se vazio" value={title} onChange={(e) => setTitle(e.target.value)} />
+              <Label htmlFor="audit-criteria">Critérios de Análise de Auditoria <span className="text-destructive">*</span></Label>
+              <Textarea
+                id="audit-criteria"
+                placeholder="Descreva a metodologia e técnicas de auditoria a serem aplicadas na análise deste documento. Ex: Verificar conformidade com a Lei 14.133/2021, analisar sobrepreço com base em tabela SINAPI..."
+                rows={4}
+                value={auditCriteria}
+                onChange={(e) => setAuditCriteria(e.target.value)}
+                className="mt-1"
+              />
+              <p className="text-xs text-muted-foreground mt-1">A IA usará esses critérios como parâmetros para avaliação do documento.</p>
             </div>
 
             <Tabs defaultValue="file">
@@ -110,14 +117,14 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
                     </>
                   )}
                 </div>
-                <Button className="w-full" disabled={!file} onClick={() => handleSubmit("file")}>
+                <Button className="w-full" disabled={!file || !auditCriteria.trim()} onClick={() => handleSubmit("file")}>
                   <FileText className="h-4 w-4 mr-2" /> Processar Documento
                 </Button>
               </TabsContent>
 
               <TabsContent value="text" className="space-y-3">
                 <Textarea placeholder="Cole o texto do edital aqui..." rows={8} value={text} onChange={(e) => setText(e.target.value)} />
-                <Button className="w-full" disabled={!text.trim()} onClick={() => handleSubmit("text")}>
+                <Button className="w-full" disabled={!text.trim() || !auditCriteria.trim()} onClick={() => handleSubmit("text")}>
                   <FileText className="h-4 w-4 mr-2" /> Processar Texto
                 </Button>
               </TabsContent>

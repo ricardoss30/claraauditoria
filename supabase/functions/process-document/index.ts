@@ -229,7 +229,7 @@ serve(async (req) => {
     }
 
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
-    const { document_id, content: rawContent } = await req.json();
+    const { document_id, content: rawContent, audit_criteria } = await req.json();
     if (!document_id) throw new Error("document_id is required");
 
     // Check cache first for deterministic results
@@ -309,7 +309,7 @@ Analise o documento com atencao especial a:
 - Irregularidades em geral`}
 
 Regras ativas para analise:
-${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}`,
+${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${audit_criteria ? `\n\nCRITÉRIOS DE ANÁLISE DE AUDITORIA DEFINIDOS PELO AUDITOR (use como parâmetros prioritários para sua avaliação):\n${audit_criteria}` : ""}`,
           },
           {
             role: "user",
@@ -421,7 +421,7 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}`,
       estimated_value: extracted_data.estimated_value || undefined,
       deadline_at: extracted_data.deadline || undefined,
       description: extracted_data.description || undefined,
-      extracted_data: { ...extracted_data, ...ragMetadata },
+      extracted_data: { ...extracted_data, ...ragMetadata, ...(audit_criteria ? { audit_criteria } : {}) },
       risk_score: Math.min(100, Math.max(0, Math.round(risk_score))),
       status: "processed",
     }).eq("id", document_id);
