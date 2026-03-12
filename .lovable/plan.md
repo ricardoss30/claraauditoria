@@ -1,34 +1,27 @@
 
 
-## Issue: 429 Too Many Requests from PNCP API
+## Auto-preencher campo "Critérios" nos alertas via IA
 
-The edge function logs clearly show that when "Todas" is selected, all 13 modality requests fire simultaneously via `Promise.all`, and the PNCP API rate-limits them with HTTP 429 responses. This means most results are silently dropped.
+### Problema
+O campo "Critérios" no diálogo de detalhes do alerta fica vazio porque a IA não gera essa informação durante a análise. O campo só é preenchido manualmente.
 
-### Fix: Sequential fetching with delay
+### Solução
+Adicionar o campo `criteria` no schema da tool call da IA, para que ela descreva os critérios e fontes legais utilizados para identificar cada risco. O valor será salvo no banco junto com o alerta.
 
-**`supabase/functions/import-pncp/index.ts`**
+### Alteração: `supabase/functions/process-document/index.ts`
 
-Replace the parallel `Promise.all` approach with sequential requests that include a small delay between each call to avoid rate limiting:
+1. **Schema da tool call** (linha ~445): Adicionar propriedade `criteria` no objeto de alerta:
+   ```
+   criteria: { type: "string", description: "Critérios normativos e fontes legais utilizados para identificar este risco (ex: artigos da Lei 14.133/2021, jurisprudência do TCU, normas técnicas)" }
+   ```
 
-```typescript
-// Instead of:
-const promises = Array.from({ length: 13 }, (_, i) =>
-  fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i + 1) })
-);
-const results = await Promise.all(promises);
+2. **Prompt do sistema** (linha ~391): Adicionar instrução para a IA preencher os critérios com referências legais e normativas para cada alerta.
 
-// Use sequential with delay:
-const allRaw: any[] = [];
-for (let i = 1; i <= 13; i++) {
-  const items = await fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i) });
-  allRaw.push(...items);
-  if (i < 13) await new Promise(r => setTimeout(r, 300)); // 300ms delay between requests
-}
-```
+3. **Inserção de alertas** (linha ~528): Incluir `criteria: a.criteria || null` no objeto de inserção.
 
-Also add retry logic in `fetchSingleModality` for 429 responses: wait 1 second and retry once.
+### Arquivos
+- `supabase/functions/process-document/index.ts` — schema, prompt e inserção
+- Redeploy da edge function `process-document`
 
-### Scope
-- Single file change: `supabase/functions/import-pncp/index.ts`
-- Redeploy the edge function after the fix
+Após a mudança, documentos reprocessados terão o campo "Critérios" preenchido automaticamente pela IA com as fontes e normas aplicadas.
 
