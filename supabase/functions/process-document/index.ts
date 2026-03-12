@@ -330,7 +330,7 @@ serve(async (req) => {
     let content = rawContent || "";
     if (!content.trim() || content.trim().startsWith("[Arquivo PDF:")) {
       console.log("Detected PDF placeholder, extracting text from storage...");
-      content = await extractPdfText(supabase, document_id);
+      content = await extractPdfText(supabase, document_id, lovableApiKey);
 
       await supabase.from("procurement_documents")
         .update({ raw_content: content })
