@@ -43,8 +43,16 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
       const rawText = decoder.decode(new Uint8Array(arrayBuffer));
       const readable = rawText.match(/[\x20-\x7E\xC0-\xFF]{10,}/g);
       if (readable && readable.length > 5) {
-        text = readable.join(" ").trim();
-        console.log(`Fallback text extraction: ${text.length} characters`);
+        const candidate = readable.join(" ").trim();
+        // Quality check: detect PDF structural metadata
+        const pdfMarkers = ["/Filter", "/FlateDecode", "/Length", "/Type", "/Page", "/obj", "endobj", "/Font", "/MediaBox", "/Resources"];
+        const markerCount = pdfMarkers.filter(m => candidate.includes(m)).length;
+        if (markerCount >= 3) {
+          console.log(`Fallback text contains ${markerCount} PDF markers, discarding as metadata`);
+        } else {
+          text = candidate;
+          console.log(`Fallback text extraction: ${text.length} characters`);
+        }
       }
     } catch (_) { /* ignore */ }
   }
