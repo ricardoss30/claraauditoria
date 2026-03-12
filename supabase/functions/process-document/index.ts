@@ -310,34 +310,44 @@ serve(async (req) => {
     }
 
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
-    const { document_id, content: rawContent, audit_criteria } = await req.json();
+    const { document_id, content: rawContent, audit_criteria, force_reextract } = await req.json();
     if (!document_id) throw new Error("document_id is required");
 
-    // Check cache first for deterministic results
-    const { data: cached } = await supabase
-      .from("text_analysis_cache")
-      .select("result")
-      .eq("document_id", document_id)
-      .eq("analysis_type", "full_extraction")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    
-    if (cached?.result && !rawContent) {
-      console.log("Returning cached analysis for document:", document_id);
-      const cachedResult = cached.result as any;
-      return new Response(JSON.stringify({ success: true, risk_score: cachedResult.risk_score, alerts_count: cachedResult.alerts?.length || 0, cached: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Check cache first for deterministic results (skip if force reextract)
+    if (!force_reextract) {
+      const { data: cached } = await supabase
+        .from("text_analysis_cache")
+        .select("result")
+        .eq("document_id", document_id)
+        .eq("analysis_type", "full_extraction")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      if (cached?.result && !rawContent) {
+        console.log("Returning cached analysis for document:", document_id);
+        const cachedResult = cached.result as any;
+        return new Response(JSON.stringify({ success: true, risk_score: cachedResult.risk_score, alerts_count: cachedResult.alerts?.length || 0, cached: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     // Update status to processing
     await supabase.from("procurement_documents").update({ status: "processing" }).eq("id", document_id);
 
-    // Determine actual content - extract from PDF if placeholder
+    // Check if incoming content contains PDF metadata garbage
+    const pdfMarkers = ["/Filter", "/FlateDecode", "/Length", "/Type", "/Page", "/obj", "endobj", "/Font", "/MediaBox", "/Resources"];
+    const contentIsGarbage = rawContent && pdfMarkers.filter((m: string) => rawContent.includes(m)).length >= 3;
+    if (contentIsGarbage) {
+      console.log("Incoming content contains PDF structural markers, will force re-extraction from file");
+    }
+
+    // Determine actual content - extract from PDF if placeholder, garbage, or force reextract
     let content = rawContent || "";
-    if (!content.trim() || content.trim().startsWith("[Arquivo PDF:")) {
-      console.log("Detected PDF placeholder, extracting text from storage...");
+    const needsExtraction = !content.trim() || content.trim().startsWith("[Arquivo PDF:") || contentIsGarbage || force_reextract;
+    if (needsExtraction) {
+      console.log("Extracting text from storage PDF...");
       content = await extractPdfText(supabase, document_id, lovableApiKey);
 
       await supabase.from("procurement_documents")

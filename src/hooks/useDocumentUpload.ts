@@ -97,7 +97,7 @@ export function useDocumentUpload() {
     }
   };
 
-  const reprocess = async (documentId: string, content: string) => {
+  const reprocess = async (documentId: string, content: string, forceReextract = false) => {
     try {
       setError(null);
       setStep("extracting");
@@ -105,7 +105,7 @@ export function useDocumentUpload() {
       await supabase.from("procurement_documents").update({ status: "pending" }).eq("id", documentId);
 
       const { data: fnData, error: fnErr } = await supabase.functions.invoke("process-document", {
-        body: { document_id: documentId, content },
+        body: { document_id: documentId, content, force_reextract: forceReextract },
       });
 
       if (fnErr) {
