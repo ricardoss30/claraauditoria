@@ -1,27 +1,34 @@
 
 
-## Fix: "Conteúdo Original" showing raw PDF metadata instead of readable text
+## Issue: 429 Too Many Requests from PNCP API
 
-### Problem
-The raw-text fallback regex (`/[\x20-\x7E\xC0-\xFF]{10,}/g`) matches PDF internal structure strings like `/Filter /FlateDecode /Length...` as "readable" text. This prevents the OCR fallback from triggering, so the document stores garbage content.
+The edge function logs clearly show that when "Todas" is selected, all 13 modality requests fire simultaneously via `Promise.all`, and the PNCP API rate-limits them with HTTP 429 responses. This means most results are silently dropped.
 
-The logs confirm: `Fallback text extraction: 990 characters` — those 990 chars are PDF metadata, not document text.
+### Fix: Sequential fetching with delay
 
-### Fix: `supabase/functions/process-document/index.ts`
+**`supabase/functions/import-pncp/index.ts`**
 
-Add a quality check after the raw-text fallback. If the extracted text contains PDF structural keywords (like `/Filter`, `/FlateDecode`, `/Length`, `/Type`, `/Page`), treat it as non-readable and fall through to OCR.
+Replace the parallel `Promise.all` approach with sequential requests that include a small delay between each call to avoid rate limiting:
 
-```text
-unpdf fails → raw fallback extracts text → quality check detects PDF metadata → skip to OCR → real text extracted
+```typescript
+// Instead of:
+const promises = Array.from({ length: 13 }, (_, i) =>
+  fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i + 1) })
+);
+const results = await Promise.all(promises);
+
+// Use sequential with delay:
+const allRaw: any[] = [];
+for (let i = 1; i <= 13; i++) {
+  const items = await fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i) });
+  allRaw.push(...items);
+  if (i < 13) await new Promise(r => setTimeout(r, 300)); // 300ms delay between requests
+}
 ```
 
-Specifically:
-- After line 46, check if the "readable" text is actually PDF internals by counting occurrences of PDF markers (`/Filter`, `/FlateDecode`, `/Length`, `/Type /Page`, `/obj`, `endobj`)
-- If PDF markers represent a significant portion of the matches, discard the text (`text = ""`) so OCR triggers
-- This ensures the already-working OCR path handles scanned/protected PDFs properly
+Also add retry logic in `fetchSingleModality` for 429 responses: wait 1 second and retry once.
 
-### Reprocess existing document
-The already-stored document has bad `raw_content`. The fix only helps future uploads. To fix the existing document, the user will need to re-upload or reprocess it.
-
-Redeploy the `process-document` edge function after the change.
+### Scope
+- Single file change: `supabase/functions/import-pncp/index.ts`
+- Redeploy the edge function after the fix
 
