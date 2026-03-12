@@ -123,11 +123,14 @@ export default function DocumentDetail() {
   };
 
   const handleReprocess = async () => {
-    if (!doc?.raw_content || !id) {
+    if (!id) return;
+    if (!doc?.raw_content && !doc?.file_url) {
       uiToast({ title: "Sem conteúdo", description: "Documento não possui conteúdo para reprocessar.", variant: "destructive" });
       return;
     }
-    await reprocess(id, doc.raw_content);
+    // If document has a file in storage, force re-extraction from PDF instead of sending corrupted raw_content
+    const content = doc?.file_url ? `[Arquivo PDF: reprocessamento]` : (doc?.raw_content || "");
+    await reprocess(id, content, !!doc?.file_url);
   };
 
   const handleDownload = async () => {
