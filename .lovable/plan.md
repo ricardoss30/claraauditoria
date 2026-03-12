@@ -1,24 +1,34 @@
 
 
-## Auto-preencher campo "Recomendações" nos alertas via IA
+## Issue: 429 Too Many Requests from PNCP API
 
-### Alteração: `supabase/functions/process-document/index.ts`
+The edge function logs clearly show that when "Todas" is selected, all 13 modality requests fire simultaneously via `Promise.all`, and the PNCP API rate-limits them with HTTP 429 responses. This means most results are silently dropped.
 
-1. **Schema da tool call** (linha ~447): Adicionar propriedade `review_notes` (que mapeia para "Recomendações" na UI):
-   ```
-   review_notes: { type: "string", description: "Recomendacoes de acoes corretivas ou preventivas para mitigar o risco identificado" }
-   ```
+### Fix: Sequential fetching with delay
 
-2. **Prompt do sistema** (linha ~402): Adicionar instrução para preencher recomendações:
-   ```
-   Para cada alerta, preencha tambem o campo "review_notes" com recomendacoes de acoes corretivas ou preventivas.
-   ```
+**`supabase/functions/import-pncp/index.ts`**
 
-3. **Required fields** (linha ~449): Adicionar `review_notes` ao array de campos obrigatórios.
+Replace the parallel `Promise.all` approach with sequential requests that include a small delay between each call to avoid rate limiting:
 
-4. **Inserção de alertas** (linha ~538): Incluir `review_notes: a.review_notes || null` no objeto de inserção.
+```typescript
+// Instead of:
+const promises = Array.from({ length: 13 }, (_, i) =>
+  fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i + 1) })
+);
+const results = await Promise.all(promises);
 
-5. Redeploy da edge function `process-document`.
+// Use sequential with delay:
+const allRaw: any[] = [];
+for (let i = 1; i <= 13; i++) {
+  const items = await fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i) });
+  allRaw.push(...items);
+  if (i < 13) await new Promise(r => setTimeout(r, 300)); // 300ms delay between requests
+}
+```
 
-Após reprocessar um documento, o campo "Recomendações" será preenchido automaticamente pela IA.
+Also add retry logic in `fetchSingleModality` for 429 responses: wait 1 second and retry once.
+
+### Scope
+- Single file change: `supabase/functions/import-pncp/index.ts`
+- Redeploy the edge function after the fix
 
