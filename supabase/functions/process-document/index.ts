@@ -537,6 +537,7 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
           severity: Math.min(5, Math.max(1, a.severity)),
           evidence: a.evidence || null,
           criteria: a.criteria || null,
+          review_notes: a.review_notes || null,
           rule_id: matchedRule?.id || null,
           status: "pending",
         };
