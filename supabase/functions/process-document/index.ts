@@ -8,7 +8,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-async function extractPdfText(supabase: any, documentId: string): Promise<string> {
+async function extractPdfText(supabase: any, documentId: string, lovableApiKey: string): Promise<string> {
   const { data: doc, error: docErr } = await supabase
     .from("procurement_documents")
     .select("file_url")
@@ -37,17 +37,71 @@ async function extractPdfText(supabase: any, documentId: string): Promise<string
   }
 
   if (!text) {
-    // Fallback: try reading as raw text (some PDFs have embedded text layers)
+    // Fallback: try reading as raw text
     try {
       const decoder = new TextDecoder("utf-8", { fatal: false });
       const rawText = decoder.decode(new Uint8Array(arrayBuffer));
-      // Extract readable strings (sequences of printable chars)
       const readable = rawText.match(/[\x20-\x7E\xC0-\xFF]{10,}/g);
       if (readable && readable.length > 5) {
         text = readable.join(" ").trim();
         console.log(`Fallback text extraction: ${text.length} characters`);
       }
     } catch (_) { /* ignore */ }
+  }
+
+  if (!text) {
+    // OCR fallback: use Gemini vision to extract text from scanned PDF
+    console.log("Attempting OCR via Gemini vision model...");
+    try {
+      const uint8 = new Uint8Array(arrayBuffer);
+      let binary = "";
+      for (let i = 0; i < uint8.length; i++) {
+        binary += String.fromCharCode(uint8[i]);
+      }
+      const base64 = btoa(binary);
+
+      const ocrResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${lovableApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-3-flash-preview",
+          temperature: 0,
+          messages: [
+            {
+              role: "user",
+              content: [
+                {
+                  type: "text",
+                  text: "Extraia todo o texto legível deste documento PDF. Retorne APENAS o texto extraído, sem comentários, explicações ou formatação adicional. Preserve a estrutura original (parágrafos, listas, tabelas) o máximo possível.",
+                },
+                {
+                  type: "image_url",
+                  image_url: {
+                    url: `data:application/pdf;base64,${base64}`,
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      });
+
+      if (ocrResponse.ok) {
+        const ocrData = await ocrResponse.json();
+        const ocrText = ocrData.choices?.[0]?.message?.content?.trim();
+        if (ocrText && ocrText.length > 50) {
+          text = ocrText;
+          console.log(`OCR text extracted: ${text.length} characters`);
+        }
+      } else {
+        console.error("OCR API error:", ocrResponse.status, await ocrResponse.text());
+      }
+    } catch (ocrErr: any) {
+      console.error("OCR extraction error:", ocrErr.message);
+    }
   }
 
   if (!text) {
@@ -276,7 +330,7 @@ serve(async (req) => {
     let content = rawContent || "";
     if (!content.trim() || content.trim().startsWith("[Arquivo PDF:")) {
       console.log("Detected PDF placeholder, extracting text from storage...");
-      content = await extractPdfText(supabase, document_id);
+      content = await extractPdfText(supabase, document_id, lovableApiKey);
 
       await supabase.from("procurement_documents")
         .update({ raw_content: content })
