@@ -399,7 +399,8 @@ Analise o documento com atencao especial a:
 - Prazo exiguo: prazos muito curtos para o tipo de licitacao
 - Irregularidades em geral
 
-Para cada alerta de risco, preencha obrigatoriamente o campo "criteria" descrevendo os criterios normativos e fontes legais utilizados para identificar o risco (ex: artigos da Lei 14.133/2021, jurisprudencia do TCU, normas tecnicas, IN SEGES, Decreto 10.024/2019). Seja especifico nas referencias.`}
+Para cada alerta de risco, preencha obrigatoriamente o campo "criteria" descrevendo os criterios normativos e fontes legais utilizados para identificar o risco (ex: artigos da Lei 14.133/2021, jurisprudencia do TCU, normas tecnicas, IN SEGES, Decreto 10.024/2019). Seja especifico nas referencias.
+Para cada alerta, preencha tambem o campo "review_notes" com recomendacoes de acoes corretivas ou preventivas para mitigar o risco identificado.`}
 
 Regras ativas para analise:
 ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${audit_criteria ? `\n\nCRITÉRIOS DE ANÁLISE DE AUDITORIA DEFINIDOS PELO AUDITOR (use como parâmetros prioritários para sua avaliação):\n${audit_criteria}` : ""}`,
