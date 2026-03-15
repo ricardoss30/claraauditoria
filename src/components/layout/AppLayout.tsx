@@ -26,7 +26,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                   <MessageSquare className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Assistente IA</TooltipContent>
+              <TooltipContent>Assistente Clara</TooltipContent>
             </Tooltip>
           </header>
           <main className="flex-1 overflow-auto p-6">{children}</main>
