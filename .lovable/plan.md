@@ -1,22 +1,34 @@
 
 
-## Alterar Título do Relatório para "Relatório de Conformidade Prévia"
+## Issue: 429 Too Many Requests from PNCP API
 
-### Alterações Necessárias
+The edge function logs clearly show that when "Todas" is selected, all 13 modality requests fire simultaneously via `Promise.all`, and the PNCP API rate-limits them with HTTP 429 responses. This means most results are silently dropped.
 
-**1. `src/pages/AuditReport.tsx`**
+### Fix: Sequential fetching with delay
 
-Substituir todas as ocorrências de "Relatório de Auditoria Fiscal" por "Relatório de Conformidade Prévia":
+**`supabase/functions/import-pncp/index.ts`**
 
-- **Linha 74** (capa do relatório): `RELATÓRIO DE AUDITORIA FISCAL` → `RELATÓRIO DE CONFORMIDADE PRÉVIA`
-- **Linha 215** (título do PDF exportado): `<h1>Relatório de Auditoria Fiscal</h1>` → `<h1>Relatório de Conformidade Prévia</h1>`
-- **Linha 150** (título da página): `Relatório de Auditoria` → `Relatório de Conformidade Prévia`
+Replace the parallel `Promise.all` approach with sequential requests that include a small delay between each call to avoid rate limiting:
 
-**2. `supabase/functions/generate-report/index.ts`**
+```typescript
+// Instead of:
+const promises = Array.from({ length: 13 }, (_, i) =>
+  fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i + 1) })
+);
+const results = await Promise.all(promises);
 
-- **Linha 83** (system prompt): Atualizar descrição do sistema
-- **Linha 85** (user prompt): Atualizar instrução inicial
-- **Linha 129** (function description): `Gera relatório de auditoria fiscal` → `Gera relatório de conformidade prévia`
+// Use sequential with delay:
+const allRaw: any[] = [];
+for (let i = 1; i <= 13; i++) {
+  const items = await fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i) });
+  allRaw.push(...items);
+  if (i < 13) await new Promise(r => setTimeout(r, 300)); // 300ms delay between requests
+}
+```
 
-**3. Re-deploy da edge function** `generate-report`
+Also add retry logic in `fetchSingleModality` for 429 responses: wait 1 second and retry once.
+
+### Scope
+- Single file change: `supabase/functions/import-pncp/index.ts`
+- Redeploy the edge function after the fix
 

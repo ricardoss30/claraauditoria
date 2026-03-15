@@ -71,7 +71,7 @@ function generateDefaultContent(doc: any, alerts: any[]): ReportContent {
   const sumarioItems = SECTION_KEYS.map((_, i) => `${i + 1}. ${Object.values(SECTION_LABELS)[i]}`).join("\n");
 
   return {
-    capa: `RELATÓRIO DE AUDITORIA FISCAL\n\nEntidade Auditada: ${doc.agency || "Não informado"}\nDocumento: ${doc.title}\nModalidade: ${doc.modality || "Não informada"}\nTipo de Auditoria: Auditoria de Conformidade em Licitação\nPeríodo Auditado: ${doc.created_at ? new Date(doc.created_at).toLocaleDateString("pt-BR") : "—"} a ${dateStr}\nData de Emissão: ${dateStr}`,
+    capa: `RELATÓRIO DE CONFORMIDADE PRÉVIA\n\nEntidade Auditada: ${doc.agency || "Não informado"}\nDocumento: ${doc.title}\nModalidade: ${doc.modality || "Não informada"}\nTipo de Auditoria: Auditoria de Conformidade em Licitação\nPeríodo Auditado: ${doc.created_at ? new Date(doc.created_at).toLocaleDateString("pt-BR") : "—"} a ${dateStr}\nData de Emissão: ${dateStr}`,
 
     sumario: sumarioItems,
 
@@ -212,7 +212,7 @@ export default function AuditReport() {
       @media print { body { padding: 20px; } }
     </style></head><body>
     ${logoHtml}
-    <h1>Relatório de Auditoria Fiscal</h1>
+    <h1>Relatório de Conformidade Prévia</h1>
     ${SECTION_KEYS.map(key => `<h2>${SECTION_LABELS[key]}</h2><div class="section">${(content[key] || "").replace(/\n/g, "<br>")}</div>`).join("")}
     </body></html>`;
 
@@ -256,7 +256,7 @@ export default function AuditReport() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold truncate">Relatório de Auditoria</h1>
+            <h1 className="text-2xl font-bold truncate">Relatório de Conformidade Prévia</h1>
             <p className="text-sm text-muted-foreground truncate">{doc.title}</p>
           </div>
           <div className="flex gap-2 flex-wrap">
