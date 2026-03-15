@@ -71,7 +71,7 @@ function generateDefaultContent(doc: any, alerts: any[]): ReportContent {
   const sumarioItems = SECTION_KEYS.map((_, i) => `${i + 1}. ${Object.values(SECTION_LABELS)[i]}`).join("\n");
 
   return {
-    capa: `RELATÓRIO DE AUDITORIA FISCAL\n\nEntidade Auditada: ${doc.agency || "Não informado"}\nDocumento: ${doc.title}\nModalidade: ${doc.modality || "Não informada"}\nTipo de Auditoria: Auditoria de Conformidade em Licitação\nPeríodo Auditado: ${doc.created_at ? new Date(doc.created_at).toLocaleDateString("pt-BR") : "—"} a ${dateStr}\nData de Emissão: ${dateStr}`,
+    capa: `RELATÓRIO DE CONFORMIDADE PRÉVIA\n\nEntidade Auditada: ${doc.agency || "Não informado"}\nDocumento: ${doc.title}\nModalidade: ${doc.modality || "Não informada"}\nTipo de Auditoria: Auditoria de Conformidade em Licitação\nPeríodo Auditado: ${doc.created_at ? new Date(doc.created_at).toLocaleDateString("pt-BR") : "—"} a ${dateStr}\nData de Emissão: ${dateStr}`,
 
     sumario: sumarioItems,
 
