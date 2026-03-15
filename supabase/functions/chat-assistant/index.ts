@@ -6,6 +6,25 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const STOPWORDS = new Set([
+  "a","o","e","de","da","do","em","um","uma","que","para","com","no","na","por","se","os","as",
+  "dos","das","ao","aos","mais","mas","como","foi","são","está","tem","ter","ser","seu","sua",
+  "ou","quando","muito","nos","já","eu","também","só","pelo","pela","até","isso","ela","ele",
+  "entre","depois","sem","mesmo","aos","seus","quem","nas","me","esse","eles","você","essa",
+  "num","nem","suas","meu","minha","numa","sobre","qual","lhe","deles","delas","esta","este",
+  "aqui","onde","bem","há","dia","era","vez","ali","porque","cada","lá","ainda","não","sim",
+  "é","são","foi","será","será","pode","podem","deve","devem","todos","todas","todo","toda",
+]);
+
+function extractKeywords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(w => w.length > 2 && !STOPWORDS.has(w))
+    .slice(0, 8);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -30,6 +49,31 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY não configurada");
 
+    // RAG: keyword search on conhecimento_chunks
+    let ragContext = "";
+    const lastUserMsg = [...messages].reverse().find((m: any) => m.role === "user");
+    if (lastUserMsg) {
+      const keywords = extractKeywords(lastUserMsg.content);
+      if (keywords.length > 0) {
+        const orFilter = keywords.map(k => `content.ilike.%${k}%`).join(",");
+        const { data: chunks } = await adminClient
+          .from("conhecimento_chunks")
+          .select("content, file_name")
+          .or(orFilter)
+          .limit(10);
+
+        if (chunks && chunks.length > 0) {
+          let ctx = "";
+          for (const chunk of chunks) {
+            const entry = `[${chunk.file_name}]: ${chunk.content}\n---\n`;
+            if (ctx.length + entry.length > 8000) break;
+            ctx += entry;
+          }
+          ragContext = ctx;
+        }
+      }
+    }
+
     const systemPrompt = `Você é a Clara, assistente de IA especializada em auditoria de conformidade, licitações públicas e contratos administrativos no Brasil.
 
 Seu papel é ajudar auditores, gestores e analistas durante o processo de auditoria, respondendo dúvidas sobre:
@@ -40,7 +84,11 @@ Seu papel é ajudar auditores, gestores e analistas durante o processo de audito
 - Interpretação de cláusulas contratuais
 - Tribunal de Contas e órgãos de controle
 
-Responda sempre em português brasileiro, de forma clara e objetiva. Quando relevante, cite a legislação aplicável.`;
+Responda sempre em português brasileiro, de forma clara e objetiva. Quando relevante, cite a legislação aplicável.${
+      ragContext
+        ? `\n\n## Base de Conhecimento\nUse os trechos abaixo como referência para suas respostas quando relevante:\n\n${ragContext}`
+        : ""
+    }`;
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",

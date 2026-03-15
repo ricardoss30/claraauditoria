@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Send, Bot, Loader2 } from "lucide-react";
+import { X, Send, Bot, Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ReactMarkdown from "react-markdown";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -77,7 +78,6 @@ async function streamChat({
     }
   }
 
-  // flush
   if (buf.trim()) {
     for (let raw of buf.split("\n")) {
       if (!raw) continue;
@@ -99,9 +99,12 @@ export function ChatBot({ onClose }: { onClose: () => void }) {
   const [messages, setMessages] = useState<Msg[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { toast } = useToast();
+  const { user } = useAuth();
 
   const scrollToBottom = useCallback(() => {
     setTimeout(() => {
@@ -114,6 +117,67 @@ export function ChatBot({ onClose }: { onClose: () => void }) {
 
   useEffect(scrollToBottom, [messages, scrollToBottom]);
 
+  // Load most recent conversation on mount
+  useEffect(() => {
+    if (!user) { setIsInitializing(false); return; }
+    (async () => {
+      try {
+        const { data: convos } = await supabase
+          .from("chat_conversations")
+          .select("id")
+          .eq("user_id", user.id)
+          .order("updated_at", { ascending: false })
+          .limit(1);
+
+        if (convos && convos.length > 0) {
+          const convId = convos[0].id;
+          setConversationId(convId);
+          const { data: msgs } = await supabase
+            .from("chat_messages")
+            .select("role, content")
+            .eq("conversation_id", convId)
+            .order("created_at", { ascending: true });
+
+          if (msgs && msgs.length > 0) {
+            setMessages([INITIAL_MESSAGE, ...msgs.map(m => ({ role: m.role as "user" | "assistant", content: m.content }))]);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load chat history:", e);
+      } finally {
+        setIsInitializing(false);
+      }
+    })();
+  }, [user]);
+
+  const ensureConversation = async (): Promise<string | null> => {
+    if (conversationId) return conversationId;
+    if (!user) return null;
+    const { data, error } = await supabase
+      .from("chat_conversations")
+      .insert({ user_id: user.id, title: "Nova conversa" })
+      .select("id")
+      .single();
+    if (error || !data) { console.error("Create conversation error:", error); return null; }
+    setConversationId(data.id);
+    return data.id;
+  };
+
+  const saveMessage = async (convId: string, role: string, content: string) => {
+    await supabase.from("chat_messages").insert({ conversation_id: convId, role, content });
+  };
+
+  const updateConversationTitle = async (convId: string, firstMsg: string) => {
+    const title = firstMsg.length > 50 ? firstMsg.slice(0, 50) + "…" : firstMsg;
+    await supabase.from("chat_conversations").update({ title, updated_at: new Date().toISOString() }).eq("id", convId);
+  };
+
+  const startNewConversation = () => {
+    setConversationId(null);
+    setMessages([INITIAL_MESSAGE]);
+    setInput("");
+  };
+
   const send = async () => {
     const text = input.trim();
     if (!text || isLoading) return;
@@ -125,6 +189,14 @@ export function ChatBot({ onClose }: { onClose: () => void }) {
     setIsLoading(true);
 
     if (textareaRef.current) textareaRef.current.style.height = "40px";
+
+    // Persist user message
+    const convId = await ensureConversation();
+    const isFirstUserMsg = !messages.some(m => m.role === "user");
+    if (convId) {
+      saveMessage(convId, "user", text);
+      if (isFirstUserMsg) updateConversationTitle(convId, text);
+    }
 
     let assistantSoFar = "";
     const upsert = (chunk: string) => {
@@ -143,7 +215,14 @@ export function ChatBot({ onClose }: { onClose: () => void }) {
       await streamChat({
         messages: newMessages.filter(m => m !== INITIAL_MESSAGE),
         onDelta: upsert,
-        onDone: () => setIsLoading(false),
+        onDone: () => {
+          setIsLoading(false);
+          // Persist assistant response
+          if (convId && assistantSoFar) {
+            saveMessage(convId, "assistant", assistantSoFar);
+            supabase.from("chat_conversations").update({ updated_at: new Date().toISOString() }).eq("id", convId);
+          }
+        },
         onError: (msg) => {
           toast({ title: "Erro", description: msg, variant: "destructive" });
           setIsLoading(false);
@@ -177,39 +256,50 @@ export function ChatBot({ onClose }: { onClose: () => void }) {
           <Bot className="h-5 w-5" />
           <span className="font-semibold text-sm">Clara - Assistente IA</span>
         </div>
-        <Button variant="ghost" size="icon" className="h-7 w-7 text-primary-foreground hover:bg-primary/80" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-primary-foreground hover:bg-primary/80" onClick={startNewConversation} title="Nova conversa">
+            <Plus className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-7 w-7 text-primary-foreground hover:bg-primary/80" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* Messages */}
       <ScrollArea className="flex-1 px-4 py-3" ref={scrollRef}>
-        <div className="space-y-3">
-          {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                m.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-foreground"
-              }`}>
-                {m.role === "assistant" ? (
-                  <div className="prose prose-sm dark:prose-invert max-w-none [&>p]:m-0 [&>ul]:my-1 [&>ol]:my-1">
-                    <ReactMarkdown>{m.content}</ReactMarkdown>
-                  </div>
-                ) : (
-                  <p className="whitespace-pre-wrap m-0">{m.content}</p>
-                )}
+        {isInitializing ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                  m.role === "user"
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-foreground"
+                }`}>
+                  {m.role === "assistant" ? (
+                    <div className="prose prose-sm dark:prose-invert max-w-none [&>p]:m-0 [&>ul]:my-1 [&>ol]:my-1">
+                      <ReactMarkdown>{m.content}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap m-0">{m.content}</p>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-          {isLoading && messages[messages.length - 1]?.role === "user" && (
-            <div className="flex justify-start">
-              <div className="bg-muted rounded-lg px-3 py-2">
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            ))}
+            {isLoading && messages[messages.length - 1]?.role === "user" && (
+              <div className="flex justify-start">
+                <div className="bg-muted rounded-lg px-3 py-2">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </ScrollArea>
 
       {/* Input */}
