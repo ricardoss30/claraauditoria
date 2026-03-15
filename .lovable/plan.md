@@ -1,28 +1,22 @@
 
 
-## Diagnóstico: Critérios de Auditoria na Seção 5
+## Alterar Título do Relatório para "Relatório de Conformidade Prévia"
 
-### Análise Realizada
+### Alterações Necessárias
 
-1. **Código do template padrão** (`AuditReport.tsx` linha 82): Está correto — inclui `audit_criteria` de `doc.extracted_data` ao final da seção 5 (`contextualizacao`).
+**1. `src/pages/AuditReport.tsx`**
 
-2. **Prompt da IA** (`generate-report/index.ts` linhas 102-105): Está correto — envia os critérios e instrui a IA a incluí-los na seção 5.
+Substituir todas as ocorrências de "Relatório de Auditoria Fiscal" por "Relatório de Conformidade Prévia":
 
-3. **Dados no banco**: O único documento existente (`5a0429f2-...`) **possui** `audit_criteria: "Utilize como base os critérios que estão na base de conhecimento."` em `extracted_data`.
+- **Linha 74** (capa do relatório): `RELATÓRIO DE AUDITORIA FISCAL` → `RELATÓRIO DE CONFORMIDADE PRÉVIA`
+- **Linha 215** (título do PDF exportado): `<h1>Relatório de Auditoria Fiscal</h1>` → `<h1>Relatório de Conformidade Prévia</h1>`
+- **Linha 150** (título da página): `Relatório de Auditoria` → `Relatório de Conformidade Prévia`
 
-4. **Relatórios salvos**: Nenhum relatório salvo na tabela `audit_reports`. Portanto, o template padrão deveria ser usado.
+**2. `supabase/functions/generate-report/index.ts`**
 
-### Problema Identificado
+- **Linha 83** (system prompt): Atualizar descrição do sistema
+- **Linha 85** (user prompt): Atualizar instrução inicial
+- **Linha 129** (function description): `Gera relatório de auditoria fiscal` → `Gera relatório de conformidade prévia`
 
-O documento na URL atual (`/documents/97b58de5-...`) **não existe no banco de dados**. Isso significa que a tela do relatório mostra "Documento não encontrado" ou dados em cache do navegador. O documento real é `5a0429f2-57a9-4c29-86fc-6e1935c56910`.
-
-### Conclusão
-
-O código já está implementado corretamente. Não há alteração de código necessária. Para testar:
-
-1. Navegue até o documento existente: `/documents/5a0429f2-57a9-4c29-86fc-6e1935c56910/report`
-2. A seção 5 do template padrão já deve exibir os critérios
-3. O botão "Gerar com IA" também deve incluir os critérios na seção 5
-
-Se ao navegar ao documento correto os critérios **ainda** não aparecerem, farei uma investigação mais profunda.
+**3. Re-deploy da edge function** `generate-report`
 
