@@ -82,7 +82,7 @@ serve(async (req) => {
 
     const systemPrompt = `Você é um auditor fiscal especialista em licitações públicas brasileiras. Gere um relatório de conformidade prévia completo e profissional com base nos dados fornecidos. Use linguagem técnica formal de auditoria. Cite legislação pertinente (Lei 14.133/2021, Lei 8.666/93, LC 101/2000). Seja detalhado e específico nos achados.`;
 
-    const userPrompt = `Gere um relatório de auditoria fiscal completo para o seguinte documento de licitação:
+    const userPrompt = `Gere um relatório de conformidade prévia completo para o seguinte documento de licitação:
 
 DADOS DO DOCUMENTO:
 - Título: ${doc.title}
