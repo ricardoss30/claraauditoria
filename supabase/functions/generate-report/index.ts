@@ -102,7 +102,7 @@ ${knowledgeContext ? `CONTEXTO NORMATIVO DA BASE DE CONHECIMENTO:\n${knowledgeCo
 ${auditCriteria ? `CRITÉRIOS DE ANÁLISE DE AUDITORIA DEFINIDOS PELO AUDITOR:
 ${auditCriteria}
 
-INSTRUÇÃO IMPORTANTE: Incorpore obrigatoriamente os critérios acima na seção "7. Constatações" (campo constatacoes). As constatações devem refletir a aplicação direta da metodologia e técnicas descritas pelo auditor, detalhando os achados conforme cada critério especificado.` : ""}
+INSTRUÇÃO IMPORTANTE: Incorpore obrigatoriamente os critérios acima na seção "7. Constatações/Achados e Evidências" (campo constatacoes). As constatações devem refletir a aplicação direta da metodologia e técnicas descritas pelo auditor, detalhando os achados conforme cada critério especificado.` : ""}
 
 Use a função generate_report para retornar o relatório estruturado em 12 seções.`;
 
