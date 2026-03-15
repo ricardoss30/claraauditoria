@@ -80,7 +80,7 @@ serve(async (req) => {
       .map((a: any) => `- ${a.title} (Severidade: ${a.severity}/5): ${a.description || ""}. Critério: ${a.criteria || "N/A"}. Evidência: ${a.evidence || "N/A"}. Notas: ${a.review_notes || "N/A"}`)
       .join("\n");
 
-    const systemPrompt = `Você é um auditor fiscal especialista em licitações públicas brasileiras. Gere um relatório de auditoria fiscal completo e profissional com base nos dados fornecidos. Use linguagem técnica formal de auditoria. Cite legislação pertinente (Lei 14.133/2021, Lei 8.666/93, LC 101/2000). Seja detalhado e específico nos achados.`;
+    const systemPrompt = `Você é um auditor fiscal especialista em licitações públicas brasileiras. Gere um relatório de conformidade prévia completo e profissional com base nos dados fornecidos. Use linguagem técnica formal de auditoria. Cite legislação pertinente (Lei 14.133/2021, Lei 8.666/93, LC 101/2000). Seja detalhado e específico nos achados.`;
 
     const userPrompt = `Gere um relatório de auditoria fiscal completo para o seguinte documento de licitação:
 
