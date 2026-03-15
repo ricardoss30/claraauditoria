@@ -256,7 +256,7 @@ export default function AuditReport() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold truncate">Relatório de Auditoria</h1>
+            <h1 className="text-2xl font-bold truncate">Relatório de Conformidade Prévia</h1>
             <p className="text-sm text-muted-foreground truncate">{doc.title}</p>
           </div>
           <div className="flex gap-2 flex-wrap">
