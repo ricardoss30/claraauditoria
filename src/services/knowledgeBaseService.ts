@@ -36,18 +36,16 @@ export async function listFiles(folder = "") {
 }
 
 export async function getFileUrl(path: string) {
-  const safePath = sanitizePath(path);
   const { data } = await supabase.storage
     .from(BUCKET)
-    .createSignedUrl(safePath, 3600);
+    .createSignedUrl(path, 3600);
   return data?.signedUrl;
 }
 
 export async function deleteFile(path: string) {
-  const safePath = sanitizePath(path);
   const { error } = await supabase.storage
     .from(BUCKET)
-    .remove([safePath]);
+    .remove([path]);
   if (error) throw error;
 }
 
