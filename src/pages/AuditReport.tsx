@@ -212,7 +212,7 @@ export default function AuditReport() {
       @media print { body { padding: 20px; } }
     </style></head><body>
     ${logoHtml}
-    <h1>Relatório de Auditoria Fiscal</h1>
+    <h1>Relatório de Conformidade Prévia</h1>
     ${SECTION_KEYS.map(key => `<h2>${SECTION_LABELS[key]}</h2><div class="section">${(content[key] || "").replace(/\n/g, "<br>")}</div>`).join("")}
     </body></html>`;
 

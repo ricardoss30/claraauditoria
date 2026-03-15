@@ -126,7 +126,7 @@ Use a função generate_report para retornar o relatório estruturado em 12 seç
             type: "function",
             function: {
               name: "generate_report",
-              description: "Gera relatório de auditoria fiscal estruturado em 12 seções",
+              description: "Gera relatório de conformidade prévia estruturado em 12 seções",
               parameters: {
                 type: "object",
                 properties: {
