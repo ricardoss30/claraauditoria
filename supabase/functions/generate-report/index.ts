@@ -136,7 +136,7 @@ Use a função generate_report para retornar o relatório estruturado em 12 seç
                   metodologia: { type: "string", description: "Metodologia de auditoria utilizada" },
                   contextualizacao: { type: "string", description: "Contextualização da situação auditada" },
                   analise_tecnica: { type: "string", description: "Análise técnica detalhada" },
-                  constatacoes: { type: "string", description: "Constatações e achados de auditoria" },
+                  constatacoes: { type: "string", description: "7. Constatações/Achados e Evidências" },
                   avaliacao_risco: { type: "string", description: "Avaliação de risco com classificação" },
                   recomendacoes: { type: "string", description: "Recomendações ao órgão auditado" },
                   plano_acao: { type: "string", description: "Plano de ação sugerido com prazos" },
