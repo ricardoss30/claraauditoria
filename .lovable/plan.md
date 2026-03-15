@@ -1,22 +1,34 @@
 
 
-## Problema
+## Issue: 429 Too Many Requests from PNCP API
 
-Os botões de preview, download e exclusão na Base de Conhecimento falham com "Erro ao gerar link de download" porque as funções `getFileUrl`, `deleteFile` e `deleteFolder` aplicam `sanitizePath` no caminho recebido. Isso transforma o nome real do arquivo (ex: "GUIA COMPLETO DE AUDITORIA FISCAL.pdf") em "guia-completo-de-auditoria-fiscal.pdf", que não existe no storage.
+The edge function logs clearly show that when "Todas" is selected, all 13 modality requests fire simultaneously via `Promise.all`, and the PNCP API rate-limits them with HTTP 429 responses. This means most results are silently dropped.
 
-O `sanitizePath` só deveria ser usado no **upload** (para criar o nome no storage). Nas operações de leitura/exclusão, o caminho já vem da listagem do storage e deve ser usado como está.
+### Fix: Sequential fetching with delay
 
-## Solução
+**`supabase/functions/import-pncp/index.ts`**
 
-**Arquivo: `src/services/knowledgeBaseService.ts`**
+Replace the parallel `Promise.all` approach with sequential requests that include a small delay between each call to avoid rate limiting:
 
-Remover a chamada a `sanitizePath` nas funções de leitura e exclusão:
+```typescript
+// Instead of:
+const promises = Array.from({ length: 13 }, (_, i) =>
+  fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i + 1) })
+);
+const results = await Promise.all(promises);
 
-1. `getFileUrl` -- usar `path` diretamente em vez de `sanitizePath(path)`
-2. `deleteFile` -- usar `path` diretamente
-3. `deleteFolder` -- usar `path` diretamente
+// Use sequential with delay:
+const allRaw: any[] = [];
+for (let i = 1; i <= 13; i++) {
+  const items = await fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i) });
+  allRaw.push(...items);
+  if (i < 13) await new Promise(r => setTimeout(r, 300)); // 300ms delay between requests
+}
+```
 
-Manter `sanitizePath` apenas em `uploadFile` e `createFolder` (onde o nome é criado).
+Also add retry logic in `fetchSingleModality` for 429 responses: wait 1 second and retry once.
 
-Isso corrige preview, download e exclusão sem afetar o upload.
+### Scope
+- Single file change: `supabase/functions/import-pncp/index.ts`
+- Redeploy the edge function after the fix
 
