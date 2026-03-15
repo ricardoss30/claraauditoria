@@ -102,7 +102,7 @@ ${knowledgeContext ? `CONTEXTO NORMATIVO DA BASE DE CONHECIMENTO:\n${knowledgeCo
 ${auditCriteria ? `CRITÉRIOS DE ANÁLISE DE AUDITORIA DEFINIDOS PELO AUDITOR:
 ${auditCriteria}
 
-INSTRUÇÃO IMPORTANTE: Incorpore obrigatoriamente os critérios acima na seção "7. Constatações" (campo constatacoes). As constatações devem refletir a aplicação direta da metodologia e técnicas descritas pelo auditor, detalhando os achados conforme cada critério especificado.` : ""}
+INSTRUÇÃO IMPORTANTE: Incorpore obrigatoriamente os critérios acima na seção "7. Constatações/Achados e Evidências" (campo constatacoes). As constatações devem refletir a aplicação direta da metodologia e técnicas descritas pelo auditor, detalhando os achados conforme cada critério especificado.` : ""}
 
 Use a função generate_report para retornar o relatório estruturado em 12 seções.`;
 
@@ -136,7 +136,7 @@ Use a função generate_report para retornar o relatório estruturado em 12 seç
                   metodologia: { type: "string", description: "Metodologia de auditoria utilizada" },
                   contextualizacao: { type: "string", description: "Contextualização da situação auditada" },
                   analise_tecnica: { type: "string", description: "Análise técnica detalhada" },
-                  constatacoes: { type: "string", description: "Constatações e achados de auditoria" },
+                  constatacoes: { type: "string", description: "7. Constatações/Achados e Evidências" },
                   avaliacao_risco: { type: "string", description: "Avaliação de risco com classificação" },
                   recomendacoes: { type: "string", description: "Recomendações ao órgão auditado" },
                   plano_acao: { type: "string", description: "Plano de ação sugerido com prazos" },

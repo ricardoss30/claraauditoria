@@ -32,7 +32,7 @@ const SECTION_LABELS: Record<keyof ReportContent, string> = {
   metodologia: "4. Metodologia",
   contextualizacao: "5. Contextualização da Situação Auditada",
   analise_tecnica: "6. Análise Técnica",
-  constatacoes: "7. Constatações",
+  constatacoes: "7. Constatações/Achados e Evidências",
   avaliacao_risco: "8. Avaliação de Risco",
   recomendacoes: "9. Recomendações",
   plano_acao: "10. Plano de Ação Sugerido",
