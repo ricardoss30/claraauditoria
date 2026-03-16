@@ -110,7 +110,6 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
   const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB
   let fileSize = 0;
   try {
-    // Use a HEAD-like approach: list the specific file to get metadata
     const { data: files } = await supabase.storage
       .from("documents")
       .list(fileUrl.includes("/") ? fileUrl.substring(0, fileUrl.lastIndexOf("/")) : "", {
@@ -124,10 +123,11 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
     console.warn("Could not determine file size, will attempt normal download:", e);
   }
 
-  console.log(`File size: ${(fileSize / 1024 / 1024).toFixed(1)}MB, threshold: ${(SIZE_THRESHOLD / 1024 / 1024)}MB`);
+  console.log(`File size: ${(fileSize / 1024 / 1024).toFixed(1)}MB, threshold: ${(SIZE_THRESHOLD / 1024 / 1024)}MB, isChunk: ${!!overrideFilePath}`);
 
-  // For large files, use signed URL + Gemini OCR directly (no download to memory)
-  if (fileSize > SIZE_THRESHOLD) {
+  // For large NON-chunk files, use signed URL approach (download + base64 data URL)
+  // For chunks (overrideFilePath), always download since they're ~15 pages max
+  if (fileSize > SIZE_THRESHOLD && !overrideFilePath) {
     return await extractPdfTextViaSignedUrl(supabase, fileUrl, fileSize, lovableApiKey);
   }
 
