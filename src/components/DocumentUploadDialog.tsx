@@ -23,7 +23,7 @@ interface Props {
 }
 
 export function DocumentUploadDialog({ open, onOpenChange }: Props) {
-  const { upload, step, error, reset } = useDocumentUpload();
+  const { upload, step, error, reset, extractionProgress } = useDocumentUpload();
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
   const [auditCriteria, setAuditCriteria] = useState("");
