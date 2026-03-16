@@ -113,8 +113,8 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
     // Use a HEAD-like approach: list the specific file to get metadata
     const { data: files } = await supabase.storage
       .from("documents")
-      .list(doc.file_url.includes("/") ? doc.file_url.substring(0, doc.file_url.lastIndexOf("/")) : "", {
-        search: doc.file_url.includes("/") ? doc.file_url.substring(doc.file_url.lastIndexOf("/") + 1) : doc.file_url,
+      .list(fileUrl.includes("/") ? fileUrl.substring(0, fileUrl.lastIndexOf("/")) : "", {
+        search: fileUrl.includes("/") ? fileUrl.substring(fileUrl.lastIndexOf("/") + 1) : fileUrl,
         limit: 1,
       });
     if (files && files.length > 0 && files[0].metadata?.size) {
