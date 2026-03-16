@@ -1,34 +1,42 @@
 
 
-## Issue: 429 Too Many Requests from PNCP API
+## Diagnóstico: "Memory limit exceeded" na Edge Function
 
-The edge function logs clearly show that when "Todas" is selected, all 13 modality requests fire simultaneously via `Promise.all`, and the PNCP API rate-limits them with HTTP 429 responses. This means most results are silently dropped.
-
-### Fix: Sequential fetching with delay
-
-**`supabase/functions/import-pncp/index.ts`**
-
-Replace the parallel `Promise.all` approach with sequential requests that include a small delay between each call to avoid rate limiting:
-
-```typescript
-// Instead of:
-const promises = Array.from({ length: 13 }, (_, i) =>
-  fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i + 1) })
-);
-const results = await Promise.all(promises);
-
-// Use sequential with delay:
-const allRaw: any[] = [];
-for (let i = 1; i <= 13; i++) {
-  const items = await fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i) });
-  allRaw.push(...items);
-  if (i < 13) await new Promise(r => setTimeout(r, 300)); // 300ms delay between requests
-}
+Os logs da Edge Function `process-document` mostram claramente:
+```
+Extracting text from storage PDF...
+Memory limit exceeded
+shutdown
 ```
 
-Also add retry logic in `fetchSingleModality` for 429 responses: wait 1 second and retry once.
+O problema: a função baixa o PDF inteiro para memória (`fileData.arrayBuffer()`) e tenta extrair texto com `unpdf`. Edge Functions do Supabase têm limite de ~150MB de RAM. PDFs grandes estouram esse limite.
 
-### Scope
-- Single file change: `supabase/functions/import-pncp/index.ts`
-- Redeploy the edge function after the fix
+## Solução proposta
+
+Modificar `supabase/functions/process-document/index.ts` para **não carregar o PDF inteiro em memória** quando o arquivo for grande. Em vez disso, usar diretamente o OCR via Gemini com uma URL assinada do Storage, evitando o download completo.
+
+### Alterações em `supabase/functions/process-document/index.ts`
+
+1. **Verificar o tamanho do arquivo antes de baixar** — Usar metadata do Storage ou HEAD request para obter o tamanho.
+
+2. **Para arquivos grandes (>20MB)**: Pular o download + `unpdf`. Em vez disso:
+   - Gerar uma URL assinada do Storage
+   - Enviar a URL ao Gemini para extração de texto via OCR (o Gemini aceita URLs de PDF)
+   - Isso evita carregar o PDF na memória da Edge Function
+
+3. **Para arquivos pequenos (<=20MB)**: Manter o fluxo atual (download + `unpdf` + fallbacks).
+
+4. **Fallback para OCR via base64**: Remover a conversão `btoa` para PDFs grandes (é isso que estoura a memória), usar apenas URL assinada.
+
+### Fluxo revisado da função `extractPdfText`
+
+```text
+Arquivo no Storage
+  ├── <= 20MB → download → unpdf → fallback regex → fallback OCR base64
+  └── > 20MB  → URL assinada → Gemini OCR via URL (sem download)
+```
+
+| Arquivo | Alteração |
+|---------|-----------|
+| `supabase/functions/process-document/index.ts` | Adicionar verificação de tamanho e caminho alternativo para PDFs grandes via URL assinada + Gemini |
 
