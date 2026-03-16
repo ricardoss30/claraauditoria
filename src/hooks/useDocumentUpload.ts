@@ -30,7 +30,14 @@ export function useDocumentUpload() {
         const ext = file.name.split(".").pop();
         const path = `${crypto.randomUUID()}.${ext}`;
         const { error: uploadErr } = await supabase.storage.from("documents").upload(path, file);
-        if (uploadErr) throw new Error(`Upload falhou: ${uploadErr.message}`);
+        if (uploadErr) {
+          if (uploadErr.message?.includes("exceeded the maximum allowed size") || uploadErr.message?.includes("Payload too large")) {
+            throw new Error(
+              "O arquivo excede o limite de upload do Supabase. Acesse o dashboard do Supabase → Storage → Settings e aumente o 'Global file size limit' para o valor desejado."
+            );
+          }
+          throw new Error(`Upload falhou: ${uploadErr.message}`);
+        }
         fileUrl = path;
 
         // For text files read content; for PDFs we send the filename as content hint
