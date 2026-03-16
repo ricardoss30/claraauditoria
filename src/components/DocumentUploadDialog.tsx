@@ -9,11 +9,11 @@ import { useDocumentUpload, UploadStep } from "@/hooks/useDocumentUpload";
 import { Label } from "@/components/ui/label";
 
 const stepProgress: Record<UploadStep, number> = {
-  idle: 0, uploading: 20, extracting: 50, analyzing: 75, done: 100, error: 100,
+  idle: 0, extracting_local: 10, uploading: 20, extracting: 50, analyzing: 75, done: 100, error: 100,
 };
 
 const stepLabels: Record<UploadStep, string> = {
-  idle: "", uploading: "Enviando arquivo...", extracting: "Extraindo dados com IA...",
+  idle: "", extracting_local: "Extraindo texto do PDF...", uploading: "Enviando arquivo...", extracting: "Extraindo dados com IA...",
   analyzing: "Analisando riscos...", done: "Concluído!", error: "Erro no processamento",
 };
 
