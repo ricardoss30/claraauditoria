@@ -9,11 +9,11 @@ import { useDocumentUpload, UploadStep } from "@/hooks/useDocumentUpload";
 import { Label } from "@/components/ui/label";
 
 const stepProgress: Record<UploadStep, number> = {
-  idle: 0, uploading: 20, extracting: 50, analyzing: 75, done: 100, error: 100,
+  idle: 0, extracting_local: 10, uploading: 20, extracting: 50, analyzing: 75, done: 100, error: 100,
 };
 
 const stepLabels: Record<UploadStep, string> = {
-  idle: "", uploading: "Enviando arquivo...", extracting: "Extraindo dados com IA...",
+  idle: "", extracting_local: "Extraindo texto do PDF...", uploading: "Enviando arquivo...", extracting: "Extraindo dados com IA...",
   analyzing: "Analisando riscos...", done: "Concluído!", error: "Erro no processamento",
 };
 
@@ -23,13 +23,13 @@ interface Props {
 }
 
 export function DocumentUploadDialog({ open, onOpenChange }: Props) {
-  const { upload, step, error, reset } = useDocumentUpload();
+  const { upload, step, error, reset, extractionProgress } = useDocumentUpload();
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
   const [auditCriteria, setAuditCriteria] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const isProcessing = ["uploading", "extracting", "analyzing"].includes(step);
+  const isProcessing = ["extracting_local", "uploading", "extracting", "analyzing"].includes(step);
 
   const handleClose = useCallback(() => {
     if (!isProcessing) {
@@ -63,10 +63,14 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
 
         {step !== "idle" && step !== "error" ? (
           <div className="space-y-4 py-4">
-            <Progress value={stepProgress[step]} className="h-2" />
+            <Progress value={step === "extracting_local" && extractionProgress ? (extractionProgress.currentPage / extractionProgress.totalPages) * 15 : stepProgress[step]} className="h-2" />
             <div className="flex items-center gap-2 text-sm">
               {step === "done" ? <CheckCircle2 className="h-4 w-4 text-[hsl(var(--clara-success))]" /> : <Loader2 className="h-4 w-4 animate-spin" />}
-              <span>{stepLabels[step]}</span>
+              <span>
+                {step === "extracting_local" && extractionProgress
+                  ? `Extraindo texto do PDF... (página ${extractionProgress.currentPage}/${extractionProgress.totalPages})`
+                  : stepLabels[step]}
+              </span>
             </div>
           </div>
         ) : step === "error" ? (

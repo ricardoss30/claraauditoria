@@ -2,16 +2,18 @@ import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { extractTextFromPdf, type PdfExtractionProgress } from "@/lib/pdfExtractor";
 
-export type UploadStep = "idle" | "uploading" | "extracting" | "analyzing" | "done" | "error";
+export type UploadStep = "idle" | "extracting_local" | "uploading" | "extracting" | "analyzing" | "done" | "error";
 
 export function useDocumentUpload() {
   const [step, setStep] = useState<UploadStep>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [extractionProgress, setExtractionProgress] = useState<PdfExtractionProgress | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const reset = () => { setStep("idle"); setError(null); };
+  const reset = () => { setStep("idle"); setError(null); setExtractionProgress(null); };
 
   const upload = async ({ file, text, audit_criteria }: { file?: File | null; text?: string; audit_criteria?: string }) => {
     try {
@@ -40,12 +42,31 @@ export function useDocumentUpload() {
         }
         fileUrl = path;
 
-        // For text files read content; for PDFs we send the filename as content hint
+        // For text files read content; for PDFs extract text client-side
         if (file.type === "text/plain") {
           rawContent = await file.text();
+        } else if (file.type === "application/pdf") {
+          setStep("extracting_local");
+          try {
+            const pdfText = await extractTextFromPdf(file, (progress) => {
+              setExtractionProgress(progress);
+            });
+            if (pdfText && pdfText.length >= 100) {
+              rawContent = pdfText;
+              console.log(`Client-side PDF extraction: ${pdfText.length} chars from ${file.name}`);
+            } else {
+              // Too little text — let server-side OCR handle it
+              rawContent = `[Arquivo PDF: ${file.name}]`;
+              console.log(`Client-side extraction yielded only ${pdfText.length} chars, falling back to server OCR`);
+            }
+          } catch (pdfErr: any) {
+            console.warn("Client-side PDF extraction failed, falling back to server:", pdfErr.message);
+            rawContent = `[Arquivo PDF: ${file.name}]`;
+          }
+          setExtractionProgress(null);
+          setStep("uploading");
         } else {
-          // For PDFs, we read as text best-effort (edge function will handle)
-          rawContent = text || `[Arquivo PDF: ${file.name}]`;
+          rawContent = text || `[Arquivo: ${file.name}]`;
         }
       }
 
@@ -150,5 +171,5 @@ export function useDocumentUpload() {
     }
   };
 
-  return { upload, reprocess, step, error, reset };
+  return { upload, reprocess, step, error, reset, extractionProgress };
 }
