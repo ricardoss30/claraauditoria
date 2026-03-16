@@ -86,15 +86,24 @@ async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, fileSi
   return text;
 }
 
-async function extractPdfText(supabase: any, documentId: string, lovableApiKey: string): Promise<string> {
-  const { data: doc, error: docErr } = await supabase
-    .from("procurement_documents")
-    .select("file_url")
-    .eq("id", documentId)
-    .single();
+async function extractPdfText(supabase: any, documentId: string, lovableApiKey: string, overrideFilePath?: string): Promise<string> {
+  let fileUrl: string;
 
-  if (docErr || !doc?.file_url) {
-    throw new Error("Não foi possível encontrar o arquivo do documento no banco de dados");
+  if (overrideFilePath) {
+    // Use the provided file path directly (e.g. for multi-part chunks)
+    fileUrl = overrideFilePath;
+    console.log(`Using override file path: ${fileUrl}`);
+  } else {
+    const { data: doc, error: docErr } = await supabase
+      .from("procurement_documents")
+      .select("file_url")
+      .eq("id", documentId)
+      .single();
+
+    if (docErr || !doc?.file_url) {
+      throw new Error("Não foi possível encontrar o arquivo do documento no banco de dados");
+    }
+    fileUrl = doc.file_url;
   }
 
   // Check file size before downloading to avoid memory issues
@@ -104,8 +113,8 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
     // Use a HEAD-like approach: list the specific file to get metadata
     const { data: files } = await supabase.storage
       .from("documents")
-      .list(doc.file_url.includes("/") ? doc.file_url.substring(0, doc.file_url.lastIndexOf("/")) : "", {
-        search: doc.file_url.includes("/") ? doc.file_url.substring(doc.file_url.lastIndexOf("/") + 1) : doc.file_url,
+      .list(fileUrl.includes("/") ? fileUrl.substring(0, fileUrl.lastIndexOf("/")) : "", {
+        search: fileUrl.includes("/") ? fileUrl.substring(fileUrl.lastIndexOf("/") + 1) : fileUrl,
         limit: 1,
       });
     if (files && files.length > 0 && files[0].metadata?.size) {
@@ -119,13 +128,13 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
 
   // For large files, use signed URL + Gemini OCR directly (no download to memory)
   if (fileSize > SIZE_THRESHOLD) {
-    return await extractPdfTextViaSignedUrl(supabase, doc.file_url, fileSize, lovableApiKey);
+    return await extractPdfTextViaSignedUrl(supabase, fileUrl, fileSize, lovableApiKey);
   }
 
   // Small files: original flow with download + unpdf + fallbacks
   const { data: fileData, error: downloadErr } = await supabase.storage
     .from("documents")
-    .download(doc.file_url);
+    .download(fileUrl);
 
   if (downloadErr || !fileData) {
     throw new Error(`Erro ao baixar o PDF do Storage: ${downloadErr?.message || "arquivo não encontrado"}`);
@@ -219,7 +228,7 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
     throw new Error("Não foi possível extrair texto do PDF. O arquivo pode estar escaneado ou protegido. Tente colar o texto manualmente na aba 'Colar Texto'.");
   }
 
-  console.log(`PDF text extracted: ${text.length} characters from ${doc.file_url}`);
+  console.log(`PDF text extracted: ${text.length} characters from ${fileUrl}`);
   return text;
 }
 
@@ -413,7 +422,7 @@ serve(async (req) => {
     }
 
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
-    const { document_id, content: rawContent, audit_criteria, force_reextract } = await req.json();
+    const { document_id, content: rawContent, audit_criteria, force_reextract, file_path } = await req.json();
     if (!document_id) throw new Error("document_id is required");
 
     // Check cache first for deterministic results (skip if force reextract)
@@ -450,8 +459,8 @@ serve(async (req) => {
     let content = rawContent || "";
     const needsExtraction = !content.trim() || content.trim().startsWith("[Arquivo PDF:") || contentIsGarbage || force_reextract;
     if (needsExtraction) {
-      console.log("Extracting text from storage PDF...");
-      content = await extractPdfText(supabase, document_id, lovableApiKey);
+      console.log(`Extracting text from storage PDF...${file_path ? ` (override: ${file_path})` : ""}`);
+      content = await extractPdfText(supabase, document_id, lovableApiKey, file_path);
 
       await supabase.from("procurement_documents")
         .update({ raw_content: content })

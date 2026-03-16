@@ -46,7 +46,7 @@ export function useDocumentUpload() {
     const parts = await splitPdf(file, (p) => setSplitProgress(p));
     setSplitProgress(null);
 
-    let combinedText = "";
+    let combinedRawContent = "";
     let totalAlerts = 0;
     let maxRiskScore = 0;
 
@@ -57,16 +57,18 @@ export function useDocumentUpload() {
       setStep("uploading");
       const partPath = await uploadSinglePart(parts[i]);
 
-      // Process part via edge function
+      // Process part via edge function — pass file_path so it OCRs the chunk, not the original
       setStep("extracting");
+      const invokeBody = {
+        document_id: documentId,
+        content: `[Arquivo PDF: ${parts[i].name}]`,
+        file_path: partPath,
+        audit_criteria: auditCriteria,
+        ...(i > 0 ? { append_mode: true } : {}),
+      };
+
       const { data: fnData, error: fnErr } = await supabase.functions.invoke("process-document", {
-        body: {
-          document_id: documentId,
-          content: `[Arquivo PDF: ${parts[i].name}]`,
-          audit_criteria: auditCriteria,
-          // For parts after the first, we append alerts instead of replacing
-          ...(i > 0 ? { append_mode: true } : {}),
-        },
+        body: invokeBody,
       });
 
       if (fnErr) {
@@ -75,20 +77,17 @@ export function useDocumentUpload() {
           // Wait and retry once on rate limit
           await new Promise((r) => setTimeout(r, 5000));
           const retry = await supabase.functions.invoke("process-document", {
-            body: {
-              document_id: documentId,
-              content: `[Arquivo PDF: ${parts[i].name}]`,
-              audit_criteria: auditCriteria,
-              ...(i > 0 ? { append_mode: true } : {}),
-            },
+            body: invokeBody,
           });
           if (retry.error) throw new Error(retry.error.message || "Erro no processamento");
+          if (retry.data) {
+            totalAlerts += retry.data.alerts_count || 0;
+            maxRiskScore = Math.max(maxRiskScore, retry.data.risk_score || 0);
+          }
         } else {
           throw new Error(errMsg || "Erro no processamento");
         }
-      }
-
-      if (fnData) {
+      } else if (fnData) {
         totalAlerts += fnData.alerts_count || 0;
         maxRiskScore = Math.max(maxRiskScore, fnData.risk_score || 0);
       }
@@ -98,6 +97,12 @@ export function useDocumentUpload() {
         await new Promise((r) => setTimeout(r, 2000));
       }
     }
+
+    // Update the main document with aggregate results
+    await supabase.from("procurement_documents").update({
+      status: "processed",
+      risk_score: maxRiskScore,
+    }).eq("id", documentId);
 
     setMultiPartProgress(null);
     return { totalAlerts, combinedRiskScore: maxRiskScore };
