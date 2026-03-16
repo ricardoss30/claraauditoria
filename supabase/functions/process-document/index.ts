@@ -8,6 +8,99 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, lovableApiKey: string): Promise<string> {
+  console.log("Using signed URL approach for large PDF (avoiding memory download)...");
+  const { data: signedData, error: signedErr } = await supabase.storage
+    .from("documents")
+    .createSignedUrl(fileUrl, 600); // 10 min expiry
+
+  if (signedErr || !signedData?.signedUrl) {
+    throw new Error(`Erro ao gerar URL assinada: ${signedErr?.message || "falha desconhecida"}`);
+  }
+
+  // Download the file as bytes and send as base64 inline (Gemini needs inline data for PDFs)
+  // But we stream in chunks to build base64 without holding full arrayBuffer
+  const pdfResponse = await fetch(signedData.signedUrl);
+  if (!pdfResponse.ok) throw new Error(`Erro ao baixar PDF via URL assinada: ${pdfResponse.status}`);
+  
+  const reader = pdfResponse.body?.getReader();
+  if (!reader) throw new Error("Não foi possível ler o stream do PDF");
+  
+  // Read chunks and encode to base64 progressively
+  const chunks: Uint8Array[] = [];
+  let totalSize = 0;
+  const MAX_OCR_SIZE = 50 * 1024 * 1024; // 50MB max for OCR
+  
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalSize += value.length;
+    if (totalSize > MAX_OCR_SIZE) {
+      reader.cancel();
+      throw new Error("Arquivo muito grande para OCR (limite de 50MB para extração via IA). Tente colar o texto manualmente.");
+    }
+    chunks.push(value);
+  }
+  
+  // Merge chunks and encode to base64
+  const merged = new Uint8Array(totalSize);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  }
+  
+  // Encode to base64 in smaller slices to avoid stack overflow
+  let base64 = "";
+  const SLICE = 32768;
+  for (let i = 0; i < merged.length; i += SLICE) {
+    const slice = merged.subarray(i, Math.min(i + SLICE, merged.length));
+    base64 += String.fromCharCode(...slice);
+  }
+  base64 = btoa(base64);
+
+  const ocrResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${lovableApiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-3-flash-preview",
+      temperature: 0,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: "Extraia todo o texto legível deste documento PDF. Retorne APENAS o texto extraído, sem comentários, explicações ou formatação adicional. Preserve a estrutura original (parágrafos, listas, tabelas) o máximo possível.",
+            },
+            {
+              type: "image_url",
+              image_url: { url: `data:application/pdf;base64,${base64}` },
+            },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!ocrResponse.ok) {
+    const errText = await ocrResponse.text();
+    throw new Error(`Erro no OCR via Gemini: ${ocrResponse.status} - ${errText}`);
+  }
+
+  const ocrData = await ocrResponse.json();
+  const text = ocrData.choices?.[0]?.message?.content?.trim();
+  if (!text || text.length < 50) {
+    throw new Error("OCR não conseguiu extrair texto suficiente do PDF. Tente colar o texto manualmente.");
+  }
+
+  console.log(`OCR (signed URL) extracted: ${text.length} characters`);
+  return text;
+}
+
 async function extractPdfText(supabase: any, documentId: string, lovableApiKey: string): Promise<string> {
   const { data: doc, error: docErr } = await supabase
     .from("procurement_documents")
@@ -19,6 +112,32 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
     throw new Error("Não foi possível encontrar o arquivo do documento no banco de dados");
   }
 
+  // Check file size before downloading to avoid memory issues
+  const SIZE_THRESHOLD = 20 * 1024 * 1024; // 20MB
+  let fileSize = 0;
+  try {
+    // Use a HEAD-like approach: list the specific file to get metadata
+    const { data: files } = await supabase.storage
+      .from("documents")
+      .list(doc.file_url.includes("/") ? doc.file_url.substring(0, doc.file_url.lastIndexOf("/")) : "", {
+        search: doc.file_url.includes("/") ? doc.file_url.substring(doc.file_url.lastIndexOf("/") + 1) : doc.file_url,
+        limit: 1,
+      });
+    if (files && files.length > 0 && files[0].metadata?.size) {
+      fileSize = files[0].metadata.size;
+    }
+  } catch (e) {
+    console.warn("Could not determine file size, will attempt normal download:", e);
+  }
+
+  console.log(`File size: ${(fileSize / 1024 / 1024).toFixed(1)}MB, threshold: ${(SIZE_THRESHOLD / 1024 / 1024)}MB`);
+
+  // For large files, use signed URL + Gemini OCR directly (no download to memory)
+  if (fileSize > SIZE_THRESHOLD) {
+    return await extractPdfTextViaSignedUrl(supabase, doc.file_url, lovableApiKey);
+  }
+
+  // Small files: original flow with download + unpdf + fallbacks
   const { data: fileData, error: downloadErr } = await supabase.storage
     .from("documents")
     .download(doc.file_url);
@@ -44,7 +163,6 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
       const readable = rawText.match(/[\x20-\x7E\xC0-\xFF]{10,}/g);
       if (readable && readable.length > 5) {
         const candidate = readable.join(" ").trim();
-        // Quality check: detect PDF structural metadata
         const pdfMarkers = ["/Filter", "/FlateDecode", "/Length", "/Type", "/Page", "/obj", "endobj", "/Font", "/MediaBox", "/Resources"];
         const markerCount = pdfMarkers.filter(m => candidate.includes(m)).length;
         if (markerCount >= 3) {
@@ -58,13 +176,15 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
   }
 
   if (!text) {
-    // OCR fallback: use Gemini vision to extract text from scanned PDF
+    // OCR fallback for small files
     console.log("Attempting OCR via Gemini vision model...");
     try {
       const uint8 = new Uint8Array(arrayBuffer);
       let binary = "";
-      for (let i = 0; i < uint8.length; i++) {
-        binary += String.fromCharCode(uint8[i]);
+      const SLICE = 32768;
+      for (let i = 0; i < uint8.length; i += SLICE) {
+        const slice = uint8.subarray(i, Math.min(i + SLICE, uint8.length));
+        binary += String.fromCharCode(...slice);
       }
       const base64 = btoa(binary);
 
@@ -87,9 +207,7 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
                 },
                 {
                   type: "image_url",
-                  image_url: {
-                    url: `data:application/pdf;base64,${base64}`,
-                  },
+                  image_url: { url: `data:application/pdf;base64,${base64}` },
                 },
               ],
             },
