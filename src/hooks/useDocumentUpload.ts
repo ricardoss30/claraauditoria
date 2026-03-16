@@ -42,12 +42,31 @@ export function useDocumentUpload() {
         }
         fileUrl = path;
 
-        // For text files read content; for PDFs we send the filename as content hint
+        // For text files read content; for PDFs extract text client-side
         if (file.type === "text/plain") {
           rawContent = await file.text();
+        } else if (file.type === "application/pdf") {
+          setStep("extracting_local");
+          try {
+            const pdfText = await extractTextFromPdf(file, (progress) => {
+              setExtractionProgress(progress);
+            });
+            if (pdfText && pdfText.length >= 100) {
+              rawContent = pdfText;
+              console.log(`Client-side PDF extraction: ${pdfText.length} chars from ${file.name}`);
+            } else {
+              // Too little text — let server-side OCR handle it
+              rawContent = `[Arquivo PDF: ${file.name}]`;
+              console.log(`Client-side extraction yielded only ${pdfText.length} chars, falling back to server OCR`);
+            }
+          } catch (pdfErr: any) {
+            console.warn("Client-side PDF extraction failed, falling back to server:", pdfErr.message);
+            rawContent = `[Arquivo PDF: ${file.name}]`;
+          }
+          setExtractionProgress(null);
+          setStep("uploading");
         } else {
-          // For PDFs, we read as text best-effort (edge function will handle)
-          rawContent = text || `[Arquivo PDF: ${file.name}]`;
+          rawContent = text || `[Arquivo: ${file.name}]`;
         }
       }
 
