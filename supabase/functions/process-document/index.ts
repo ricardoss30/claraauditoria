@@ -8,7 +8,16 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, lovableApiKey: string): Promise<string> {
+async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, fileSize: number, lovableApiKey: string): Promise<string> {
+  // Gemini has limits on file size it can process via URL (~100MB practical limit)
+  const MAX_GEMINI_URL_SIZE = 100 * 1024 * 1024; // 100MB
+  if (fileSize > MAX_GEMINI_URL_SIZE) {
+    throw new Error(
+      `O arquivo tem ${(fileSize / 1024 / 1024).toFixed(0)}MB, que excede o limite de ${(MAX_GEMINI_URL_SIZE / 1024 / 1024)}MB para extração automática via IA. ` +
+      `Para documentos muito grandes, use a aba "Colar Texto" e cole o conteúdo manualmente.`
+    );
+  }
+
   console.log("Using signed URL approach for large PDF (zero-download, sending URL to Gemini)...");
   const { data: signedData, error: signedErr } = await supabase.storage
     .from("documents")
@@ -18,8 +27,6 @@ async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, lovabl
     throw new Error(`Erro ao gerar URL assinada: ${signedErr?.message || "falha desconhecida"}`);
   }
 
-  // Send the signed URL directly to Gemini - no download needed
-  // Gemini's OpenAI-compatible API can fetch the URL itself
   const ocrResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -48,11 +55,29 @@ async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, lovabl
   });
 
   if (!ocrResponse.ok) {
-    const errText = await ocrResponse.text();
+    const errText = await ocrResponse.text().catch(() => "resposta vazia");
     throw new Error(`Erro no OCR via Gemini: ${ocrResponse.status} - ${errText}`);
   }
 
-  const ocrData = await ocrResponse.json();
+  const responseText = await ocrResponse.text();
+  if (!responseText || responseText.trim().length === 0) {
+    throw new Error(
+      "A IA retornou uma resposta vazia para este PDF. O arquivo pode ser muito grande ou estar corrompido. " +
+      "Tente colar o texto manualmente na aba 'Colar Texto'."
+    );
+  }
+
+  let ocrData: any;
+  try {
+    ocrData = JSON.parse(responseText);
+  } catch {
+    console.error("Failed to parse OCR response:", responseText.substring(0, 500));
+    throw new Error(
+      "Resposta inválida da IA ao processar o PDF. O arquivo pode ser muito grande. " +
+      "Tente colar o texto manualmente na aba 'Colar Texto'."
+    );
+  }
+
   const text = ocrData.choices?.[0]?.message?.content?.trim();
   if (!text || text.length < 50) {
     throw new Error("OCR não conseguiu extrair texto suficiente do PDF. Tente colar o texto manualmente.");
@@ -95,7 +120,7 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
 
   // For large files, use signed URL + Gemini OCR directly (no download to memory)
   if (fileSize > SIZE_THRESHOLD) {
-    return await extractPdfTextViaSignedUrl(supabase, doc.file_url, lovableApiKey);
+    return await extractPdfTextViaSignedUrl(supabase, doc.file_url, fileSize, lovableApiKey);
   }
 
   // Small files: original flow with download + unpdf + fallbacks
