@@ -171,5 +171,5 @@ export function useDocumentUpload() {
     }
   };
 
-  return { upload, reprocess, step, error, reset };
+  return { upload, reprocess, step, error, reset, extractionProgress };
 }
