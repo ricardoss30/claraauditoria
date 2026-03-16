@@ -228,7 +228,7 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
     throw new Error("Não foi possível extrair texto do PDF. O arquivo pode estar escaneado ou protegido. Tente colar o texto manualmente na aba 'Colar Texto'.");
   }
 
-  console.log(`PDF text extracted: ${text.length} characters from ${doc.file_url}`);
+  console.log(`PDF text extracted: ${text.length} characters from ${fileUrl}`);
   return text;
 }
 
