@@ -23,6 +23,10 @@ export function useDocumentUpload() {
 
       // Upload file to storage if provided
       if (file) {
+        const MAX_SIZE = 600 * 1024 * 1024; // 600MB
+        if (file.size > MAX_SIZE) {
+          throw new Error("O arquivo excede o tamanho máximo de 600MB");
+        }
         const ext = file.name.split(".").pop();
         const path = `${crypto.randomUUID()}.${ext}`;
         const { error: uploadErr } = await supabase.storage.from("documents").upload(path, file);
