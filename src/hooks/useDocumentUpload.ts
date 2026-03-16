@@ -13,7 +13,7 @@ export function useDocumentUpload() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const reset = () => { setStep("idle"); setError(null); };
+  const reset = () => { setStep("idle"); setError(null); setExtractionProgress(null); };
 
   const upload = async ({ file, text, audit_criteria }: { file?: File | null; text?: string; audit_criteria?: string }) => {
     try {
