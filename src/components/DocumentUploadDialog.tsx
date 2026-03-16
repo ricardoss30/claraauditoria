@@ -29,7 +29,7 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
   const [auditCriteria, setAuditCriteria] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const isProcessing = ["uploading", "extracting", "analyzing"].includes(step);
+  const isProcessing = ["extracting_local", "uploading", "extracting", "analyzing"].includes(step);
 
   const handleClose = useCallback(() => {
     if (!isProcessing) {
