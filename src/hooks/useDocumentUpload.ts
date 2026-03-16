@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
-export type UploadStep = "idle" | "uploading" | "extracting" | "analyzing" | "done" | "error";
+export type UploadStep = "idle" | "extracting_local" | "uploading" | "extracting" | "analyzing" | "done" | "error";
 
 export function useDocumentUpload() {
   const [step, setStep] = useState<UploadStep>("idle");
