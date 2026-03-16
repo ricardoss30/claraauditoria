@@ -9,6 +9,7 @@ export type UploadStep = "idle" | "extracting_local" | "uploading" | "extracting
 export function useDocumentUpload() {
   const [step, setStep] = useState<UploadStep>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [extractionProgress, setExtractionProgress] = useState<PdfExtractionProgress | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
