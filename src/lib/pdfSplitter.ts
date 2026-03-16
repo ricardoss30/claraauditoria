@@ -46,8 +46,9 @@ export async function splitPdf(
     copiedPages.forEach((page) => newDoc.addPage(page));
 
     const pdfBytes = await newDoc.save();
+    const blob = new Blob([pdfBytes], { type: "application/pdf" });
     const partFile = new File(
-      [pdfBytes],
+      [blob],
       `${baseName}_parte${i + 1}.pdf`,
       { type: "application/pdf" }
     );
