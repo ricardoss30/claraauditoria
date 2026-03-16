@@ -1,34 +1,19 @@
 
 
-## Issue: 429 Too Many Requests from PNCP API
+## Corrigir erro de tamanho máximo no upload de documentos
 
-The edge function logs clearly show that when "Todas" is selected, all 13 modality requests fire simultaneously via `Promise.all`, and the PNCP API rate-limits them with HTTP 429 responses. This means most results are silently dropped.
+O bucket `documents` tem limite de 50MB. O arquivo enviado excede esse limite.
 
-### Fix: Sequential fetching with delay
+### Alterações
 
-**`supabase/functions/import-pncp/index.ts`**
+1. **Migration SQL** — Aumentar limite do bucket `documents` para 600MB:
+   ```sql
+   UPDATE storage.buckets SET file_size_limit = 629145600 WHERE id = 'documents';
+   ```
 
-Replace the parallel `Promise.all` approach with sequential requests that include a small delay between each call to avoid rate limiting:
+2. **`src/hooks/useDocumentUpload.ts`** — Adicionar validação client-side antes do upload:
+   - Verificar se o arquivo excede 600MB
+   - Exibir mensagem clara: "O arquivo excede o tamanho máximo de 600MB"
 
-```typescript
-// Instead of:
-const promises = Array.from({ length: 13 }, (_, i) =>
-  fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i + 1) })
-);
-const results = await Promise.all(promises);
-
-// Use sequential with delay:
-const allRaw: any[] = [];
-for (let i = 1; i <= 13; i++) {
-  const items = await fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i) });
-  allRaw.push(...items);
-  if (i < 13) await new Promise(r => setTimeout(r, 300)); // 300ms delay between requests
-}
-```
-
-Also add retry logic in `fetchSingleModality` for 429 responses: wait 1 second and retry once.
-
-### Scope
-- Single file change: `supabase/functions/import-pncp/index.ts`
-- Redeploy the edge function after the fix
+3. **`src/components/DocumentUploadDialog.tsx`** — Atualizar texto de referência de "20MB" para "600MB" na área de drag-and-drop.
 
