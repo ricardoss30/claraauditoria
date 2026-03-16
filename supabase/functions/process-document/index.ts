@@ -86,15 +86,24 @@ async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, fileSi
   return text;
 }
 
-async function extractPdfText(supabase: any, documentId: string, lovableApiKey: string): Promise<string> {
-  const { data: doc, error: docErr } = await supabase
-    .from("procurement_documents")
-    .select("file_url")
-    .eq("id", documentId)
-    .single();
+async function extractPdfText(supabase: any, documentId: string, lovableApiKey: string, overrideFilePath?: string): Promise<string> {
+  let fileUrl: string;
 
-  if (docErr || !doc?.file_url) {
-    throw new Error("Não foi possível encontrar o arquivo do documento no banco de dados");
+  if (overrideFilePath) {
+    // Use the provided file path directly (e.g. for multi-part chunks)
+    fileUrl = overrideFilePath;
+    console.log(`Using override file path: ${fileUrl}`);
+  } else {
+    const { data: doc, error: docErr } = await supabase
+      .from("procurement_documents")
+      .select("file_url")
+      .eq("id", documentId)
+      .single();
+
+    if (docErr || !doc?.file_url) {
+      throw new Error("Não foi possível encontrar o arquivo do documento no banco de dados");
+    }
+    fileUrl = doc.file_url;
   }
 
   // Check file size before downloading to avoid memory issues
