@@ -1,24 +1,34 @@
 
 
-## Diagnóstico: Exclusão silenciosa sem efeito
+## Issue: 429 Too Many Requests from PNCP API
 
-O documento **não está sendo excluído** porque a política RLS da tabela `procurement_documents` só permite exclusão para usuários com role `admin`. O usuário logado provavelmente é **André (gestor)**, que não tem permissão de DELETE.
+The edge function logs clearly show that when "Todas" is selected, all 13 modality requests fire simultaneously via `Promise.all`, and the PNCP API rate-limits them with HTTP 429 responses. This means most results are silently dropped.
 
-O problema no código: `supabase.from("procurement_documents").delete().eq("id", ...)` retorna sem erro mesmo quando 0 linhas são afetadas pelo RLS. O toast "Documento excluído com sucesso" aparece sem que nada tenha sido removido.
+### Fix: Sequential fetching with delay
 
-### Correções
+**`supabase/functions/import-pncp/index.ts`**
 
-1. **Migration SQL** — Adicionar política RLS para gestores poderem excluir documentos:
-   ```sql
-   CREATE POLICY "Gestor can delete documents"
-   ON procurement_documents FOR DELETE TO authenticated
-   USING (has_role(auth.uid(), 'gestor'));
-   ```
+Replace the parallel `Promise.all` approach with sequential requests that include a small delay between each call to avoid rate limiting:
 
-2. **`src/pages/Documents.tsx`** — Verificar se a exclusão realmente aconteceu, checando o retorno do delete (contar linhas afetadas ou fazer select após delete) e exibir erro caso o documento não tenha sido removido.
+```typescript
+// Instead of:
+const promises = Array.from({ length: 13 }, (_, i) =>
+  fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i + 1) })
+);
+const results = await Promise.all(promises);
 
-| Arquivo | Alteração |
-|---------|-----------|
-| Nova migration SQL | Política de DELETE para gestores |
-| `src/pages/Documents.tsx` | Verificar resultado real da exclusão |
+// Use sequential with delay:
+const allRaw: any[] = [];
+for (let i = 1; i <= 13; i++) {
+  const items = await fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i) });
+  allRaw.push(...items);
+  if (i < 13) await new Promise(r => setTimeout(r, 300)); // 300ms delay between requests
+}
+```
+
+Also add retry logic in `fetchSingleModality` for 429 responses: wait 1 second and retry once.
+
+### Scope
+- Single file change: `supabase/functions/import-pncp/index.ts`
+- Redeploy the edge function after the fix
 
