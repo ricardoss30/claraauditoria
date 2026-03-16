@@ -9,15 +9,28 @@ const corsHeaders = {
 };
 
 async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, fileSize: number, lovableApiKey: string): Promise<string> {
-  console.log(`Using signed URL approach for PDF (${(fileSize / 1024 / 1024).toFixed(1)}MB, zero-download, sending URL to Gemini)...`);
+  console.log(`Downloading PDF for OCR (${(fileSize / 1024 / 1024).toFixed(1)}MB)...`);
 
-  const { data: signedData, error: signedErr } = await supabase.storage
+  // Download the file to convert to base64 data URL (Gemini doesn't accept PDF via signed URL)
+  const { data: fileData, error: downloadErr } = await supabase.storage
     .from("documents")
-    .createSignedUrl(fileUrl, 600); // 10 min expiry
+    .download(fileUrl);
 
-  if (signedErr || !signedData?.signedUrl) {
-    throw new Error(`Erro ao gerar URL assinada: ${signedErr?.message || "falha desconhecida"}`);
+  if (downloadErr || !fileData) {
+    throw new Error(`Erro ao baixar o PDF: ${downloadErr?.message || "arquivo não encontrado"}`);
   }
+
+  const arrayBuffer = await fileData.arrayBuffer();
+  const uint8 = new Uint8Array(arrayBuffer);
+  let binary = "";
+  const SLICE = 32768;
+  for (let i = 0; i < uint8.length; i += SLICE) {
+    const slice = uint8.subarray(i, Math.min(i + SLICE, uint8.length));
+    binary += String.fromCharCode(...slice);
+  }
+  const base64 = btoa(binary);
+
+  console.log(`PDF converted to base64 (${(base64.length / 1024 / 1024).toFixed(1)}MB), sending to Gemini OCR...`);
 
   const ocrResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
@@ -38,7 +51,7 @@ async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, fileSi
             },
             {
               type: "image_url",
-              image_url: { url: signedData.signedUrl },
+              image_url: { url: `data:application/pdf;base64,${base64}` },
             },
           ],
         },
@@ -82,7 +95,7 @@ async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, fileSi
     );
   }
 
-  console.log(`OCR (signed URL) extracted: ${text.length} characters`);
+  console.log(`OCR extracted: ${text.length} characters`);
   return text;
 }
 

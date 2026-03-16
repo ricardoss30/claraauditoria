@@ -6,7 +6,7 @@ export interface SplitProgress {
   totalParts: number;
 }
 
-const PAGES_PER_CHUNK = 30;
+const PAGES_PER_CHUNK = 15;
 
 /**
  * Split a PDF file into smaller chunks of ~30 pages each.
