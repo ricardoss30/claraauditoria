@@ -9,16 +9,8 @@ const corsHeaders = {
 };
 
 async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, fileSize: number, lovableApiKey: string): Promise<string> {
-  // Gemini has limits on file size it can process via URL (~100MB practical limit)
-  const MAX_GEMINI_URL_SIZE = 100 * 1024 * 1024; // 100MB
-  if (fileSize > MAX_GEMINI_URL_SIZE) {
-    throw new Error(
-      `O arquivo tem ${(fileSize / 1024 / 1024).toFixed(0)}MB, que excede o limite de ${(MAX_GEMINI_URL_SIZE / 1024 / 1024)}MB para extração automática via IA. ` +
-      `Para documentos muito grandes, use a aba "Colar Texto" e cole o conteúdo manualmente.`
-    );
-  }
+  console.log(`Using signed URL approach for PDF (${(fileSize / 1024 / 1024).toFixed(1)}MB, zero-download, sending URL to Gemini)...`);
 
-  console.log("Using signed URL approach for large PDF (zero-download, sending URL to Gemini)...");
   const { data: signedData, error: signedErr } = await supabase.storage
     .from("documents")
     .createSignedUrl(fileUrl, 600); // 10 min expiry
@@ -56,14 +48,18 @@ async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, fileSi
 
   if (!ocrResponse.ok) {
     const errText = await ocrResponse.text().catch(() => "resposta vazia");
-    throw new Error(`Erro no OCR via Gemini: ${ocrResponse.status} - ${errText}`);
+    console.error(`Gemini OCR API error: ${ocrResponse.status} - ${errText.substring(0, 300)}`);
+    throw new Error(
+      `Não foi possível processar este PDF via OCR (status ${ocrResponse.status}). ` +
+      `O arquivo pode ser muito grande para processamento automático. Tente dividir o documento em partes menores.`
+    );
   }
 
   const responseText = await ocrResponse.text();
   if (!responseText || responseText.trim().length === 0) {
     throw new Error(
       "A IA retornou uma resposta vazia para este PDF. O arquivo pode ser muito grande ou estar corrompido. " +
-      "Tente colar o texto manualmente na aba 'Colar Texto'."
+      "Tente dividir o documento em partes menores."
     );
   }
 
@@ -74,13 +70,16 @@ async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, fileSi
     console.error("Failed to parse OCR response:", responseText.substring(0, 500));
     throw new Error(
       "Resposta inválida da IA ao processar o PDF. O arquivo pode ser muito grande. " +
-      "Tente colar o texto manualmente na aba 'Colar Texto'."
+      "Tente dividir o documento em partes menores."
     );
   }
 
   const text = ocrData.choices?.[0]?.message?.content?.trim();
   if (!text || text.length < 50) {
-    throw new Error("OCR não conseguiu extrair texto suficiente do PDF. Tente colar o texto manualmente.");
+    throw new Error(
+      "OCR não conseguiu extrair texto suficiente do PDF. O documento pode ser escaneado com baixa qualidade. " +
+      "Tente dividir em partes menores ou melhorar a qualidade do escaneamento."
+    );
   }
 
   console.log(`OCR (signed URL) extracted: ${text.length} characters`);
