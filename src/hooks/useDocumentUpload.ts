@@ -3,17 +3,105 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { extractTextFromPdf, type PdfExtractionProgress } from "@/lib/pdfExtractor";
+import { splitPdf, type SplitProgress } from "@/lib/pdfSplitter";
 
-export type UploadStep = "idle" | "extracting_local" | "uploading" | "extracting" | "analyzing" | "done" | "error";
+export type UploadStep = "idle" | "extracting_local" | "splitting" | "uploading" | "extracting" | "analyzing" | "done" | "error";
+
+export interface MultiPartProgress {
+  currentPart: number;
+  totalParts: number;
+}
 
 export function useDocumentUpload() {
   const [step, setStep] = useState<UploadStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [extractionProgress, setExtractionProgress] = useState<PdfExtractionProgress | null>(null);
+  const [splitProgress, setSplitProgress] = useState<SplitProgress | null>(null);
+  const [multiPartProgress, setMultiPartProgress] = useState<MultiPartProgress | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const reset = () => { setStep("idle"); setError(null); setExtractionProgress(null); };
+  const reset = () => {
+    setStep("idle");
+    setError(null);
+    setExtractionProgress(null);
+    setSplitProgress(null);
+    setMultiPartProgress(null);
+  };
+
+  const uploadSinglePart = async (partFile: File): Promise<string> => {
+    const ext = partFile.name.split(".").pop();
+    const path = `${crypto.randomUUID()}.${ext}`;
+    const { error: uploadErr } = await supabase.storage.from("documents").upload(path, partFile);
+    if (uploadErr) throw new Error(`Upload falhou: ${uploadErr.message}`);
+    return path;
+  };
+
+  const processMultiPart = async (
+    file: File,
+    documentId: string,
+    auditCriteria: string
+  ): Promise<{ totalAlerts: number; combinedRiskScore: number }> => {
+    setStep("splitting");
+    const parts = await splitPdf(file, (p) => setSplitProgress(p));
+    setSplitProgress(null);
+
+    let combinedText = "";
+    let totalAlerts = 0;
+    let maxRiskScore = 0;
+
+    for (let i = 0; i < parts.length; i++) {
+      setMultiPartProgress({ currentPart: i + 1, totalParts: parts.length });
+
+      // Upload part
+      setStep("uploading");
+      const partPath = await uploadSinglePart(parts[i]);
+
+      // Process part via edge function
+      setStep("extracting");
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke("process-document", {
+        body: {
+          document_id: documentId,
+          content: `[Arquivo PDF: ${parts[i].name}]`,
+          audit_criteria: auditCriteria,
+          // For parts after the first, we append alerts instead of replacing
+          ...(i > 0 ? { append_mode: true } : {}),
+        },
+      });
+
+      if (fnErr) {
+        const errMsg = fnErr.message || "";
+        if (errMsg.includes("429")) {
+          // Wait and retry once on rate limit
+          await new Promise((r) => setTimeout(r, 5000));
+          const retry = await supabase.functions.invoke("process-document", {
+            body: {
+              document_id: documentId,
+              content: `[Arquivo PDF: ${parts[i].name}]`,
+              audit_criteria: auditCriteria,
+              ...(i > 0 ? { append_mode: true } : {}),
+            },
+          });
+          if (retry.error) throw new Error(retry.error.message || "Erro no processamento");
+        } else {
+          throw new Error(errMsg || "Erro no processamento");
+        }
+      }
+
+      if (fnData) {
+        totalAlerts += fnData.alerts_count || 0;
+        maxRiskScore = Math.max(maxRiskScore, fnData.risk_score || 0);
+      }
+
+      // Small delay between parts to avoid rate limits
+      if (i < parts.length - 1) {
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+
+    setMultiPartProgress(null);
+    return { totalAlerts, combinedRiskScore: maxRiskScore };
+  };
 
   const upload = async ({ file, text, audit_criteria }: { file?: File | null; text?: string; audit_criteria?: string }) => {
     try {
@@ -22,6 +110,7 @@ export function useDocumentUpload() {
 
       let fileUrl: string | null = null;
       let rawContent = text || "";
+      let needsMultiPart = false;
 
       // Upload file to storage if provided
       if (file) {
@@ -55,13 +144,21 @@ export function useDocumentUpload() {
               rawContent = pdfText;
               console.log(`Client-side PDF extraction: ${pdfText.length} chars from ${file.name}`);
             } else {
-              // Too little text — let server-side OCR handle it
-              rawContent = `[Arquivo PDF: ${file.name}]`;
-              console.log(`Client-side extraction yielded only ${pdfText.length} chars, falling back to server OCR`);
+              // Too little text — check if large enough to need splitting
+              console.log(`Client-side extraction yielded only ${pdfText.length} chars`);
+              if (file.size > 20 * 1024 * 1024) {
+                needsMultiPart = true;
+              } else {
+                rawContent = `[Arquivo PDF: ${file.name}]`;
+              }
             }
           } catch (pdfErr: any) {
-            console.warn("Client-side PDF extraction failed, falling back to server:", pdfErr.message);
-            rawContent = `[Arquivo PDF: ${file.name}]`;
+            console.warn("Client-side PDF extraction failed:", pdfErr.message);
+            if (file.size > 20 * 1024 * 1024) {
+              needsMultiPart = true;
+            } else {
+              rawContent = `[Arquivo PDF: ${file.name}]`;
+            }
           }
           setExtractionProgress(null);
           setStep("uploading");
@@ -70,7 +167,7 @@ export function useDocumentUpload() {
         }
       }
 
-      if (!rawContent.trim()) throw new Error("Nenhum conteúdo fornecido");
+      if (!needsMultiPart && !rawContent.trim()) throw new Error("Nenhum conteúdo fornecido");
 
       // Create document record
       const { data: user } = await supabase.auth.getUser();
@@ -80,7 +177,7 @@ export function useDocumentUpload() {
           title: "Documento sem título",
           status: "pending",
           file_url: fileUrl,
-          raw_content: rawContent,
+          raw_content: needsMultiPart ? `[PDF grande em processamento: ${file!.name}]` : rawContent,
           created_by: user.user?.id,
           extracted_data: audit_criteria ? { audit_criteria } : {},
         })
@@ -89,15 +186,35 @@ export function useDocumentUpload() {
 
       if (insertErr) throw new Error(`Erro ao criar documento: ${insertErr.message}`);
 
+      // Multi-part processing for large scanned PDFs
+      if (needsMultiPart && file) {
+        const { totalAlerts, combinedRiskScore } = await processMultiPart(
+          file,
+          doc.id,
+          audit_criteria || ""
+        );
+
+        setStep("done");
+        queryClient.invalidateQueries({ queryKey: ["documents"] });
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+        queryClient.invalidateQueries({ queryKey: ["alerts"] });
+
+        toast({
+          title: "Documento processado (em partes)",
+          description: `${totalAlerts} alerta(s) gerado(s). Score de risco: ${combinedRiskScore}`,
+        });
+
+        return doc.id;
+      }
+
+      // Normal single-part processing
       setStep("extracting");
 
-      // Call edge function
       const { data: fnData, error: fnErr } = await supabase.functions.invoke("process-document", {
         body: { document_id: doc.id, content: rawContent, audit_criteria: audit_criteria || "" },
       });
 
       if (fnErr) {
-        // Check for specific error codes
         const errMsg = fnErr.message || "";
         if (errMsg.includes("429") || errMsg.includes("Rate limit")) {
           toast({ title: "Limite de requisições", description: "Aguarde alguns minutos e tente novamente.", variant: "destructive" });
@@ -108,8 +225,6 @@ export function useDocumentUpload() {
       }
 
       setStep("analyzing");
-
-      // Brief pause for UX
       await new Promise((r) => setTimeout(r, 500));
 
       setStep("done");
@@ -171,5 +286,5 @@ export function useDocumentUpload() {
     }
   };
 
-  return { upload, reprocess, step, error, reset, extractionProgress };
+  return { upload, reprocess, step, error, reset, extractionProgress, splitProgress, multiPartProgress };
 }
