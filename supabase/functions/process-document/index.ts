@@ -128,7 +128,7 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
 
   // For large files, use signed URL + Gemini OCR directly (no download to memory)
   if (fileSize > SIZE_THRESHOLD) {
-    return await extractPdfTextViaSignedUrl(supabase, doc.file_url, fileSize, lovableApiKey);
+    return await extractPdfTextViaSignedUrl(supabase, fileUrl, fileSize, lovableApiKey);
   }
 
   // Small files: original flow with download + unpdf + fallbacks
