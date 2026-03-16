@@ -40,8 +40,12 @@ export default function Documents() {
         await supabase.storage.from("documents").remove([deleteDoc.file_url]);
       }
       // 3. Delete document
-      const { error } = await supabase.from("procurement_documents").delete().eq("id", deleteDoc.id);
+      const { error, count } = await supabase.from("procurement_documents").delete().eq("id", deleteDoc.id).select("id", { count: "exact", head: true });
       if (error) throw error;
+      if (count === 0) {
+        toast({ title: "Não foi possível excluir", description: "Você não tem permissão para excluir este documento.", variant: "destructive" });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       toast({ title: "Documento excluído com sucesso" });
     } catch (err: any) {
