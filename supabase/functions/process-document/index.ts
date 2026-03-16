@@ -459,8 +459,8 @@ serve(async (req) => {
     let content = rawContent || "";
     const needsExtraction = !content.trim() || content.trim().startsWith("[Arquivo PDF:") || contentIsGarbage || force_reextract;
     if (needsExtraction) {
-      console.log("Extracting text from storage PDF...");
-      content = await extractPdfText(supabase, document_id, lovableApiKey);
+      console.log(`Extracting text from storage PDF...${file_path ? ` (override: ${file_path})` : ""}`);
+      content = await extractPdfText(supabase, document_id, lovableApiKey, file_path);
 
       await supabase.from("procurement_documents")
         .update({ raw_content: content })
