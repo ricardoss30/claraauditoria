@@ -2,6 +2,7 @@ import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { extractTextFromPdf, type PdfExtractionProgress } from "@/lib/pdfExtractor";
 
 export type UploadStep = "idle" | "extracting_local" | "uploading" | "extracting" | "analyzing" | "done" | "error";
 
