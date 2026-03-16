@@ -44,7 +44,7 @@ export default function Documents() {
       // Verify deletion actually happened
       const { data: stillExists } = await supabase.from("procurement_documents").select("id").eq("id", deleteDoc.id).maybeSingle();
       if (error) throw error;
-      if (count === 0) {
+      if (stillExists) {
         toast({ title: "Não foi possível excluir", description: "Você não tem permissão para excluir este documento.", variant: "destructive" });
         return;
       }
