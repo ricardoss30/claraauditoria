@@ -9,12 +9,18 @@ import { useDocumentUpload, UploadStep } from "@/hooks/useDocumentUpload";
 import { Label } from "@/components/ui/label";
 
 const stepProgress: Record<UploadStep, number> = {
-  idle: 0, extracting_local: 10, uploading: 20, extracting: 50, analyzing: 75, done: 100, error: 100,
+  idle: 0, extracting_local: 10, splitting: 15, uploading: 20, extracting: 50, analyzing: 75, done: 100, error: 100,
 };
 
 const stepLabels: Record<UploadStep, string> = {
-  idle: "", extracting_local: "Extraindo texto do PDF...", uploading: "Enviando arquivo...", extracting: "Extraindo dados com IA...",
-  analyzing: "Analisando riscos...", done: "Concluído!", error: "Erro no processamento",
+  idle: "",
+  extracting_local: "Extraindo texto do PDF...",
+  splitting: "Dividindo PDF em partes menores...",
+  uploading: "Enviando arquivo...",
+  extracting: "Extraindo dados com IA...",
+  analyzing: "Analisando riscos...",
+  done: "Concluído!",
+  error: "Erro no processamento",
 };
 
 interface Props {
@@ -23,13 +29,13 @@ interface Props {
 }
 
 export function DocumentUploadDialog({ open, onOpenChange }: Props) {
-  const { upload, step, error, reset, extractionProgress } = useDocumentUpload();
+  const { upload, step, error, reset, extractionProgress, splitProgress, multiPartProgress } = useDocumentUpload();
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
   const [auditCriteria, setAuditCriteria] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const isProcessing = ["extracting_local", "uploading", "extracting", "analyzing"].includes(step);
+  const isProcessing = ["extracting_local", "splitting", "uploading", "extracting", "analyzing"].includes(step);
 
   const handleClose = useCallback(() => {
     if (!isProcessing) {
@@ -53,6 +59,34 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
     if (f && (f.type === "application/pdf" || f.type === "text/plain")) setFile(f);
   };
 
+  // Build dynamic label
+  const getStepLabel = () => {
+    if (step === "extracting_local" && extractionProgress) {
+      return `Extraindo texto do PDF... (página ${extractionProgress.currentPage}/${extractionProgress.totalPages})`;
+    }
+    if (step === "splitting" && splitProgress) {
+      return `Dividindo PDF... (parte ${splitProgress.currentPart}/${splitProgress.totalParts})`;
+    }
+    if (multiPartProgress) {
+      return `${stepLabels[step]} (parte ${multiPartProgress.currentPart}/${multiPartProgress.totalParts})`;
+    }
+    return stepLabels[step];
+  };
+
+  // Calculate progress for multi-part
+  const getProgressValue = () => {
+    if (multiPartProgress && multiPartProgress.totalParts > 1) {
+      const partWeight = 80 / multiPartProgress.totalParts; // 80% for processing parts (10% split + 10% done)
+      const partBase = 15 + (multiPartProgress.currentPart - 1) * partWeight;
+      const stepOffset = step === "uploading" ? 0 : step === "extracting" ? partWeight * 0.4 : step === "analyzing" ? partWeight * 0.8 : 0;
+      return Math.min(95, partBase + stepOffset);
+    }
+    if (step === "extracting_local" && extractionProgress) {
+      return (extractionProgress.currentPage / extractionProgress.totalPages) * 15;
+    }
+    return stepProgress[step];
+  };
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-lg">
@@ -63,15 +97,16 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
 
         {step !== "idle" && step !== "error" ? (
           <div className="space-y-4 py-4">
-            <Progress value={step === "extracting_local" && extractionProgress ? (extractionProgress.currentPage / extractionProgress.totalPages) * 15 : stepProgress[step]} className="h-2" />
+            <Progress value={getProgressValue()} className="h-2" />
             <div className="flex items-center gap-2 text-sm">
               {step === "done" ? <CheckCircle2 className="h-4 w-4 text-[hsl(var(--clara-success))]" /> : <Loader2 className="h-4 w-4 animate-spin" />}
-              <span>
-                {step === "extracting_local" && extractionProgress
-                  ? `Extraindo texto do PDF... (página ${extractionProgress.currentPage}/${extractionProgress.totalPages})`
-                  : stepLabels[step]}
-              </span>
+              <span>{getStepLabel()}</span>
             </div>
+            {multiPartProgress && multiPartProgress.totalParts > 1 && (
+              <p className="text-xs text-muted-foreground">
+                PDF grande detectado — processando em {multiPartProgress.totalParts} partes automaticamente.
+              </p>
+            )}
           </div>
         ) : step === "error" ? (
           <div className="space-y-4 py-4">
