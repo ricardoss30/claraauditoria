@@ -1,34 +1,41 @@
 
 
-## Issue: 429 Too Many Requests from PNCP API
+## Solução: Extração de texto do PDF no navegador (client-side)
 
-The edge function logs clearly show that when "Todas" is selected, all 13 modality requests fire simultaneously via `Promise.all`, and the PNCP API rate-limits them with HTTP 429 responses. This means most results are silently dropped.
+O problema raiz é que PDFs grandes (>20MB) não podem ser baixados na Edge Function por limite de memória, e o Gemini também tem limites para processar PDFs muito grandes via URL. Pedir para o usuário colar texto manualmente é inviável.
 
-### Fix: Sequential fetching with delay
+**A solução é extrair o texto do PDF diretamente no navegador** usando `pdfjs-dist` antes de enviar para o backend. O navegador não tem os mesmos limites de memória da Edge Function e pode processar PDFs grandes sem problemas.
 
-**`supabase/functions/import-pncp/index.ts`**
+### Fluxo revisado
 
-Replace the parallel `Promise.all` approach with sequential requests that include a small delay between each call to avoid rate limiting:
-
-```typescript
-// Instead of:
-const promises = Array.from({ length: 13 }, (_, i) =>
-  fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i + 1) })
-);
-const results = await Promise.all(promises);
-
-// Use sequential with delay:
-const allRaw: any[] = [];
-for (let i = 1; i <= 13; i++) {
-  const items = await fetchSingleModality({ ...baseParams, codigoModalidadeContratacao: String(i) });
-  allRaw.push(...items);
-  if (i < 13) await new Promise(r => setTimeout(r, 300)); // 300ms delay between requests
-}
+```text
+Usuário seleciona PDF
+  → Browser extrai texto via pdf.js (client-side)
+  → Upload do arquivo ao Storage (para referência)
+  → Envia texto extraído + document_id à Edge Function
+  → Edge Function analisa o texto (sem precisar baixar/processar o PDF)
 ```
 
-Also add retry logic in `fetchSingleModality` for 429 responses: wait 1 second and retry once.
+### Alterações
 
-### Scope
-- Single file change: `supabase/functions/import-pncp/index.ts`
-- Redeploy the edge function after the fix
+| Arquivo | O que muda |
+|---------|-----------|
+| `package.json` | Adicionar dependência `pdfjs-dist` |
+| `src/hooks/useDocumentUpload.ts` | Adicionar função `extractTextFromPdf(file)` que usa `pdfjs-dist` para extrair texto de todas as páginas do PDF no browser. Usar esse texto como `rawContent` em vez de `[Arquivo PDF: ...]` |
+| `src/components/DocumentUploadDialog.tsx` | Adicionar step visual "Extraindo texto do PDF..." durante a extração client-side. Mostrar progresso por página |
+| `src/hooks/useDocumentUpload.ts` | Novo step `"extracting_local"` para diferenciar extração local da extração server-side |
+
+### Detalhes da extração client-side
+
+1. Carregar o PDF com `pdfjs-dist` usando `getDocument(arrayBuffer)`
+2. Iterar por todas as páginas (`pdf.numPages`)
+3. Para cada página, chamar `page.getTextContent()` e concatenar os itens de texto
+4. Se o texto extraído for muito curto (<100 chars), manter o fluxo atual (enviar para a Edge Function tentar OCR)
+5. Se o texto for suficiente, enviar diretamente como `rawContent` — a Edge Function pula a extração de PDF
+
+### Benefícios
+- Funciona para PDFs de qualquer tamanho (o browser suporta)
+- Elimina o problema de memória na Edge Function
+- Extração é mais rápida (sem rede envolvida)
+- Fallback para OCR server-side caso o PDF seja escaneado (sem texto extraível)
 
