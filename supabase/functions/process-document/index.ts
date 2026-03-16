@@ -9,7 +9,7 @@ const corsHeaders = {
 };
 
 async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, lovableApiKey: string): Promise<string> {
-  console.log("Using signed URL approach for large PDF (avoiding memory download)...");
+  console.log("Using signed URL approach for large PDF (zero-download, sending URL to Gemini)...");
   const { data: signedData, error: signedErr } = await supabase.storage
     .from("documents")
     .createSignedUrl(fileUrl, 600); // 10 min expiry
@@ -18,47 +18,8 @@ async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, lovabl
     throw new Error(`Erro ao gerar URL assinada: ${signedErr?.message || "falha desconhecida"}`);
   }
 
-  // Download the file as bytes and send as base64 inline (Gemini needs inline data for PDFs)
-  // But we stream in chunks to build base64 without holding full arrayBuffer
-  const pdfResponse = await fetch(signedData.signedUrl);
-  if (!pdfResponse.ok) throw new Error(`Erro ao baixar PDF via URL assinada: ${pdfResponse.status}`);
-  
-  const reader = pdfResponse.body?.getReader();
-  if (!reader) throw new Error("Não foi possível ler o stream do PDF");
-  
-  // Read chunks and encode to base64 progressively
-  const chunks: Uint8Array[] = [];
-  let totalSize = 0;
-  const MAX_OCR_SIZE = 50 * 1024 * 1024; // 50MB max for OCR
-  
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    totalSize += value.length;
-    if (totalSize > MAX_OCR_SIZE) {
-      reader.cancel();
-      throw new Error("Arquivo muito grande para OCR (limite de 50MB para extração via IA). Tente colar o texto manualmente.");
-    }
-    chunks.push(value);
-  }
-  
-  // Merge chunks and encode to base64
-  const merged = new Uint8Array(totalSize);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.length;
-  }
-  
-  // Encode to base64 in smaller slices to avoid stack overflow
-  let base64 = "";
-  const SLICE = 32768;
-  for (let i = 0; i < merged.length; i += SLICE) {
-    const slice = merged.subarray(i, Math.min(i + SLICE, merged.length));
-    base64 += String.fromCharCode(...slice);
-  }
-  base64 = btoa(base64);
-
+  // Send the signed URL directly to Gemini - no download needed
+  // Gemini's OpenAI-compatible API can fetch the URL itself
   const ocrResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -78,7 +39,7 @@ async function extractPdfTextViaSignedUrl(supabase: any, fileUrl: string, lovabl
             },
             {
               type: "image_url",
-              image_url: { url: `data:application/pdf;base64,${base64}` },
+              image_url: { url: signedData.signedUrl },
             },
           ],
         },
