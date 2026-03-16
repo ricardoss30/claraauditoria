@@ -134,7 +134,7 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
   // Small files: original flow with download + unpdf + fallbacks
   const { data: fileData, error: downloadErr } = await supabase.storage
     .from("documents")
-    .download(doc.file_url);
+    .download(fileUrl);
 
   if (downloadErr || !fileData) {
     throw new Error(`Erro ao baixar o PDF do Storage: ${downloadErr?.message || "arquivo não encontrado"}`);
