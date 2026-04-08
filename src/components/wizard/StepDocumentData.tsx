@@ -40,7 +40,7 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
     setIsExtracting(true);
     try {
       const { data: result, error } = await supabase.functions.invoke("extract-metadata", {
-        body: { text: content.slice(0, 5000) },
+        body: { text: content.slice(0, 12000) },
       });
 
       if (error) throw error;
