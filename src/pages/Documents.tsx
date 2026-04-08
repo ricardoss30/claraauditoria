@@ -23,7 +23,7 @@ import { toast } from "@/hooks/use-toast";
 
 export default function Documents() {
   const { data, isLoading, search, setSearch, statusFilter, setStatusFilter, page, setPage, pageSize } = useDocuments();
-  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadOpen, setUploadOpen] = useState(false); // kept for backward compat
   const [deleteDoc, setDeleteDoc] = useState<{ id: string; title: string; file_url: string | null } | null>(null);
   const [deleting, setDeleting] = useState(false);
   const queryClient = useQueryClient();
