@@ -25,7 +25,7 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY não configurada");
     }
 
-    const truncated = text.slice(0, 5000);
+    const truncated = text.slice(0, 12000);
 
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -34,16 +34,31 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash-lite",
+        model: "google/gemini-2.5-flash",
         messages: [
           {
             role: "system",
-            content:
-              "Você é um assistente especializado em extrair metadados de editais de licitação brasileiros. Analise o texto fornecido e extraia os campos solicitados. Se não encontrar um campo, retorne string vazia. Para valor estimado, retorne apenas o número sem formatação.",
+            content: `Você é um especialista em análise de editais de licitação brasileiros. Sua tarefa é extrair metadados estruturados do texto fornecido com a maior precisão possível.
+
+Instruções detalhadas para cada campo:
+
+1. **title**: Procure no cabeçalho ou preâmbulo do documento. Geralmente contém a modalidade e número (ex: "Pregão Eletrônico nº 001/2025", "Concorrência Pública nº 003/2024"). Inclua o número completo.
+
+2. **agency**: O órgão ou entidade responsável pela licitação. Procure no cabeçalho, preâmbulo ou após termos como "O(A)", "A Prefeitura", "O Município", "O Governo", "A Secretaria". Inclua o nome completo do órgão.
+
+3. **modality**: A modalidade da licitação. Valores comuns: "Pregão Eletrônico", "Pregão Presencial", "Concorrência", "Tomada de Preços", "Convite", "Leilão", "Concurso", "Dispensa de Licitação", "Inexigibilidade". Procure no título ou preâmbulo.
+
+4. **estimated_value**: O valor estimado/máximo da contratação. Procure por variações como: "valor estimado", "valor total estimado", "valor global", "valor máximo", "preço máximo", "valor de referência", "montante estimado", "valor total máximo", "R$". Retorne APENAS o número com centavos, sem pontos de milhar, usando ponto como separador decimal (ex: "150000.00"). Se encontrar "R$ 1.500.000,00", retorne "1500000.00".
+
+5. **description**: Resumo do objeto da licitação. Procure após "OBJETO:", "DO OBJETO", "Constitui objeto", "tem por objeto". Máximo 200 caracteres.
+
+6. **published_at**: Data de publicação, abertura ou assinatura do edital. Procure por "Data de publicação", "Publicado em", "Data da sessão", "Data de abertura", ou datas no cabeçalho/rodapé. Retorne no formato YYYY-MM-DD. Se encontrar "15 de março de 2025", retorne "2025-03-15".
+
+IMPORTANTE: Se não encontrar um campo com certeza, retorne string vazia. Não invente dados.`,
           },
           {
             role: "user",
-            content: `Extraia os metadados deste edital:\n\n${truncated}`,
+            content: `Extraia os metadados deste edital de licitação:\n\n${truncated}`,
           },
         ],
         tools: [
@@ -51,17 +66,18 @@ serve(async (req) => {
             type: "function",
             function: {
               name: "extract_metadata",
-              description: "Extrai metadados estruturados de um edital de licitação",
+              description: "Extrai metadados estruturados de um edital de licitação brasileiro",
               parameters: {
                 type: "object",
                 properties: {
-                  title: { type: "string", description: "Título completo do edital (ex: Pregão Eletrônico nº 001/2025)" },
-                  agency: { type: "string", description: "Órgão ou entidade responsável" },
-                  modality: { type: "string", description: "Modalidade da licitação (ex: Pregão Eletrônico, Concorrência)" },
-                  estimated_value: { type: "string", description: "Valor estimado em reais, apenas números (ex: 150000.00)" },
-                  description: { type: "string", description: "Descrição resumida do objeto da licitação (máximo 200 caracteres)" },
+                  title: { type: "string", description: "Título completo do edital com modalidade e número" },
+                  agency: { type: "string", description: "Órgão ou entidade responsável pela licitação" },
+                  modality: { type: "string", description: "Modalidade da licitação" },
+                  estimated_value: { type: "string", description: "Valor estimado apenas números com ponto decimal (ex: 150000.00)" },
+                  description: { type: "string", description: "Descrição resumida do objeto (máximo 200 caracteres)" },
+                  published_at: { type: "string", description: "Data de publicação no formato YYYY-MM-DD" },
                 },
-                required: ["title", "agency", "modality", "estimated_value", "description"],
+                required: ["title", "agency", "modality", "estimated_value", "description", "published_at"],
                 additionalProperties: false,
               },
             },
@@ -69,6 +85,7 @@ serve(async (req) => {
         ],
         tool_choice: { type: "function", function: { name: "extract_metadata" } },
         temperature: 0,
+        max_tokens: 2048,
       }),
     });
 

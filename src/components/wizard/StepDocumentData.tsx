@@ -51,7 +51,7 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
           agency: result.agency || data.agency,
           modality: result.modality || data.modality,
           estimated_value: result.estimated_value || data.estimated_value,
-          published_at: data.published_at,
+          published_at: result.published_at || data.published_at,
           description: result.description || data.description,
         });
         setExtractionDone(true);
