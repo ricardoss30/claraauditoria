@@ -1,46 +1,35 @@
 
 
-## Fluxo de criação de documento em etapas (Wizard)
+## Preencher metadados automaticamente na Etapa 1
 
-Transformar o dialog atual de "Novo Documento" em uma página dedicada com wizard de etapas, seguindo o padrão visual do projeto SPM (WizardStepper com círculos numerados e linha conectora).
+Adicionar upload de PDF / colar texto na Etapa 1 do wizard para que os campos de metadados sejam preenchidos automaticamente via IA, mantendo o layout de 4 etapas.
 
-### Etapas do Wizard
+### Fluxo
 
-```text
-  ①─────────②─────────③─────────④
-Dados do    Conteúdo   Critérios  Processamento
-Documento              de Auditoria
-```
-
-**Etapa 1 — Dados do Documento**: Título, Órgão, Modalidade, Valor Estimado, Data de Publicação, Descrição (campos que hoje ficam como "Documento sem título" e são preenchidos pela IA depois)
-
-**Etapa 2 — Conteúdo**: Upload de PDF ou Colar Texto (mesma interface atual com drag-and-drop e tabs)
-
-**Etapa 3 — Critérios de Auditoria**: Textarea para os critérios (já existe no dialog atual), com descrição explicativa
-
-**Etapa 4 — Processamento**: Barra de progresso, status por etapa (extração, divisão, análise), resultado final com link para o documento
+1. Usuário faz upload de PDF ou cola texto na Etapa 1
+2. Sistema extrai texto do PDF (client-side via `pdfExtractor`) ou usa o texto colado
+3. Chama uma nova edge function `extract-metadata` que usa Lovable AI para extrair apenas título, órgão, modalidade, valor e descrição
+4. Campos do formulário são preenchidos automaticamente (editáveis pelo usuário)
+5. Etapa 2 já terá o arquivo/texto pré-selecionado
 
 ### Alterações
 
 | Arquivo | O que muda |
 |---------|-----------|
-| `src/components/wizard/WizardStepper.tsx` | **Novo** — Componente copiado/adaptado do projeto SPM com círculos numerados, check em etapas concluídas, linha conectora |
-| `src/pages/NewDocument.tsx` | **Novo** — Página dedicada com o wizard de 4 etapas, gerencia `currentStep` e formulários por etapa |
-| `src/components/wizard/StepDocumentData.tsx` | **Novo** — Etapa 1: formulário com título, órgão, modalidade, valor estimado, data publicação |
-| `src/components/wizard/StepDocumentContent.tsx` | **Novo** — Etapa 2: upload de arquivo ou colar texto (lógica extraída do DocumentUploadDialog) |
-| `src/components/wizard/StepAuditCriteria.tsx` | **Novo** — Etapa 3: textarea de critérios de auditoria |
-| `src/components/wizard/StepProcessing.tsx` | **Novo** — Etapa 4: progresso do processamento, exibe resultado e link para o documento |
-| `src/App.tsx` | Adicionar rota `/documents/new` para `NewDocument` |
-| `src/pages/Documents.tsx` | Botão "Novo Documento" navega para `/documents/new` em vez de abrir dialog |
-| `src/hooks/useDocumentUpload.ts` | Ajustar para aceitar metadata (título, órgão, etc.) no `upload()` e usá-los ao criar o registro no banco |
+| `src/components/wizard/StepDocumentData.tsx` | Adicionar área de upload/colar texto no topo do formulário. Ao enviar arquivo ou colar texto, dispara extração de metadados. Mostra loading enquanto IA processa. Campos são preenchidos automaticamente mas permanecem editáveis |
+| `src/pages/NewDocument.tsx` | Passar `file`, `text`, `onFileChange`, `onTextChange` para StepDocumentData. Quando avançar para Etapa 2, arquivo/texto já estarão preenchidos |
+| `supabase/functions/extract-metadata/index.ts` | **Nova** edge function leve que recebe texto (até 5000 chars) e retorna apenas `{title, agency, modality, estimated_value, description}` via tool calling. Usa `gemini-2.5-flash-lite` para ser rápida e barata |
 
 ### Detalhes técnicos
 
-- O `WizardStepper` usa a mesma estrutura visual do projeto SPM: círculos com número/check, linha conectora, labels abaixo
-- Na etapa 1, os campos são opcionais exceto Título (obrigatório), permitindo avançar sem preencher tudo
-- Na etapa 2, validação exige arquivo ou texto antes de avançar
-- Na etapa 3, critérios de auditoria são obrigatórios (como hoje)
-- Na etapa 4, o `useDocumentUpload` é chamado e o progresso é exibido em tempo real
-- Botões "Voltar" e "Próximo" em cada etapa, "Processar" na etapa 3 → avança para etapa 4
-- O `DocumentUploadDialog` pode ser mantido para compatibilidade mas não será mais usado na listagem
+**StepDocumentData** receberá props adicionais (`file`, `text`, `onFileChange`, `onTextChange`) e terá:
+- Tabs "Upload de Arquivo" / "Colar Texto" no topo (mesmo padrão da Etapa 2)
+- Quando arquivo PDF é selecionado: extrai texto client-side → envia primeiros 5000 chars para `extract-metadata` → preenche campos
+- Quando texto é colado: envia primeiros 5000 chars para `extract-metadata` → preenche campos
+- Indicador de loading "Extraindo dados..." enquanto IA processa
+- Campos preenchidos ficam editáveis para correção manual
+
+**Edge function `extract-metadata`**: versão simplificada do `process-document`, sem RAG, sem regras, sem alertas. Apenas extrai metadados do texto usando tool calling com `gemini-2.5-flash-lite`.
+
+**Etapa 2 (StepDocumentContent)**: continua existindo mas já mostrará o arquivo/texto selecionado na Etapa 1, permitindo alterar se necessário.
 
