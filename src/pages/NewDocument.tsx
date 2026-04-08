@@ -70,6 +70,10 @@ export default function NewDocument() {
                 data={metadata}
                 onChange={setMetadata}
                 onNext={() => setCurrentStep(2)}
+                file={file}
+                text={text}
+                onFileChange={setFile}
+                onTextChange={setText}
               />
             )}
             {currentStep === 2 && (
