@@ -149,6 +149,7 @@ export type Database = {
           file_name: string
           file_path: string
           id: number
+          metadata: Json | null
         }
         Insert: {
           content: string
@@ -157,6 +158,7 @@ export type Database = {
           file_name: string
           file_path: string
           id?: number
+          metadata?: Json | null
         }
         Update: {
           content?: string
@@ -165,6 +167,7 @@ export type Database = {
           file_name?: string
           file_path?: string
           id?: number
+          metadata?: Json | null
         }
         Relationships: []
       }
@@ -543,6 +546,15 @@ export type Database = {
         Returns: boolean
       }
       match_conhecimento_chunks: {
+        Args: { filter?: Json; match_count?: number; query_embedding: string }
+        Returns: {
+          content: string
+          id: number
+          metadata: Json
+          similarity: number
+        }[]
+      }
+      match_documents: {
         Args: { filter?: Json; match_count?: number; query_embedding: string }
         Returns: {
           content: string
