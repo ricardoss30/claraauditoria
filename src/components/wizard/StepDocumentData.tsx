@@ -40,7 +40,7 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
     setIsExtracting(true);
     try {
       const { data: result, error } = await supabase.functions.invoke("extract-metadata", {
-        body: { text: content.slice(0, 5000) },
+        body: { text: content.slice(0, 12000) },
       });
 
       if (error) throw error;
@@ -51,7 +51,7 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
           agency: result.agency || data.agency,
           modality: result.modality || data.modality,
           estimated_value: result.estimated_value || data.estimated_value,
-          published_at: data.published_at,
+          published_at: result.published_at || data.published_at,
           description: result.description || data.description,
         });
         setExtractionDone(true);
