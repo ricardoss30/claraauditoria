@@ -25,6 +25,7 @@ import StructuredOutput from "./pages/settings/StructuredOutput";
 import Trends from "./pages/Trends";
 import ConsolidatedReport from "./pages/ConsolidatedReport";
 import ImportPNCP from "./pages/ImportPNCP";
+import NewDocument from "./pages/NewDocument";
 
 const queryClient = new QueryClient();
 
