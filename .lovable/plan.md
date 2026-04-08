@@ -1,35 +1,32 @@
 
 
-## Preencher metadados automaticamente na Etapa 1
+## Melhorar precisão da extração de metadados
 
-Adicionar upload de PDF / colar texto na Etapa 1 do wizard para que os campos de metadados sejam preenchidos automaticamente via IA, mantendo o layout de 4 etapas.
+### Problemas identificados
 
-### Fluxo
-
-1. Usuário faz upload de PDF ou cola texto na Etapa 1
-2. Sistema extrai texto do PDF (client-side via `pdfExtractor`) ou usa o texto colado
-3. Chama uma nova edge function `extract-metadata` que usa Lovable AI para extrair apenas título, órgão, modalidade, valor e descrição
-4. Campos do formulário são preenchidos automaticamente (editáveis pelo usuário)
-5. Etapa 2 já terá o arquivo/texto pré-selecionado
+1. **Modelo fraco**: `gemini-2.5-flash-lite` é o modelo mais leve, com menor capacidade de extração. Campos como valor estimado e data ficam vazios.
+2. **Texto truncado a 5000 caracteres**: Metadados importantes (valor, datas) frequentemente aparecem depois das primeiras páginas.
+3. **Prompt pouco detalhado**: O system prompt não orienta a IA sobre onde encontrar cada campo no documento.
+4. **Sem `max_tokens`**: A resposta pode ser truncada silenciosamente.
+5. **Sem extração de data de publicação**: O campo `published_at` não é extraído pela IA, apenas mantido vazio.
 
 ### Alterações
 
 | Arquivo | O que muda |
 |---------|-----------|
-| `src/components/wizard/StepDocumentData.tsx` | Adicionar área de upload/colar texto no topo do formulário. Ao enviar arquivo ou colar texto, dispara extração de metadados. Mostra loading enquanto IA processa. Campos são preenchidos automaticamente mas permanecem editáveis |
-| `src/pages/NewDocument.tsx` | Passar `file`, `text`, `onFileChange`, `onTextChange` para StepDocumentData. Quando avançar para Etapa 2, arquivo/texto já estarão preenchidos |
-| `supabase/functions/extract-metadata/index.ts` | **Nova** edge function leve que recebe texto (até 5000 chars) e retorna apenas `{title, agency, modality, estimated_value, description}` via tool calling. Usa `gemini-2.5-flash-lite` para ser rápida e barata |
+| `supabase/functions/extract-metadata/index.ts` | Upgrade do modelo para `gemini-2.5-flash`, aumento do texto para 12000 chars, adicionar `published_at` aos campos extraídos, melhorar system prompt com instruções detalhadas, adicionar `max_tokens: 2048` |
+| `src/components/wizard/StepDocumentData.tsx` | Mapear `published_at` retornado pela IA para o campo de data no formulário |
 
 ### Detalhes técnicos
 
-**StepDocumentData** receberá props adicionais (`file`, `text`, `onFileChange`, `onTextChange`) e terá:
-- Tabs "Upload de Arquivo" / "Colar Texto" no topo (mesmo padrão da Etapa 2)
-- Quando arquivo PDF é selecionado: extrai texto client-side → envia primeiros 5000 chars para `extract-metadata` → preenche campos
-- Quando texto é colado: envia primeiros 5000 chars para `extract-metadata` → preenche campos
-- Indicador de loading "Extraindo dados..." enquanto IA processa
-- Campos preenchidos ficam editáveis para correção manual
+**Modelo**: `gemini-2.5-flash-lite` → `gemini-2.5-flash` (melhor raciocínio, mesmo custo baixo)
 
-**Edge function `extract-metadata`**: versão simplificada do `process-document`, sem RAG, sem regras, sem alertas. Apenas extrai metadados do texto usando tool calling com `gemini-2.5-flash-lite`.
+**Texto enviado**: 5000 → 12000 caracteres (cobre mais páginas onde valores e datas aparecem)
 
-**Etapa 2 (StepDocumentContent)**: continua existindo mas já mostrará o arquivo/texto selecionado na Etapa 1, permitindo alterar se necessário.
+**Novo campo extraído**: `published_at` com descrição "Data de publicação no formato YYYY-MM-DD"
+
+**System prompt melhorado**:
+- Instruções específicas sobre onde encontrar cada campo (cabeçalho, preâmbulo, cláusulas financeiras)
+- Orientação para buscar variações comuns de nomenclatura (ex: "valor global", "valor total estimado", "preço máximo")
+- Instrução para extrair datas no formato ISO
 
