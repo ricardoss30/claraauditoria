@@ -64,7 +64,7 @@ export default function Documents() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold">Documentos</h1>
-          <Button onClick={() => setUploadOpen(true)}><Plus className="h-4 w-4 mr-2" /> Novo Documento</Button>
+          <Button onClick={() => navigate("/documents/new")}><Plus className="h-4 w-4 mr-2" /> Novo Documento</Button>
         </div>
         <DocumentUploadDialog open={uploadOpen} onOpenChange={setUploadOpen} />
 
