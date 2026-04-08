@@ -108,7 +108,19 @@ export function useDocumentUpload() {
     return { totalAlerts, combinedRiskScore: maxRiskScore };
   };
 
-  const upload = async ({ file, text, audit_criteria }: { file?: File | null; text?: string; audit_criteria?: string }) => {
+  const upload = async ({ file, text, audit_criteria, metadata }: {
+    file?: File | null;
+    text?: string;
+    audit_criteria?: string;
+    metadata?: {
+      title?: string;
+      agency?: string;
+      modality?: string;
+      estimated_value?: number;
+      published_at?: string;
+      description?: string;
+    };
+  }) => {
     try {
       setError(null);
       setStep("uploading");
