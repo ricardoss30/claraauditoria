@@ -108,7 +108,19 @@ export function useDocumentUpload() {
     return { totalAlerts, combinedRiskScore: maxRiskScore };
   };
 
-  const upload = async ({ file, text, audit_criteria }: { file?: File | null; text?: string; audit_criteria?: string }) => {
+  const upload = async ({ file, text, audit_criteria, metadata }: {
+    file?: File | null;
+    text?: string;
+    audit_criteria?: string;
+    metadata?: {
+      title?: string;
+      agency?: string;
+      modality?: string;
+      estimated_value?: number;
+      published_at?: string;
+      description?: string;
+    };
+  }) => {
     try {
       setError(null);
       setStep("uploading");
@@ -179,12 +191,17 @@ export function useDocumentUpload() {
       const { data: doc, error: insertErr } = await supabase
         .from("procurement_documents")
         .insert({
-          title: "Documento sem título",
+          title: metadata?.title || "Documento sem título",
           status: "pending",
           file_url: fileUrl,
           raw_content: needsMultiPart ? `[PDF grande em processamento: ${file!.name}]` : rawContent,
           created_by: user.user?.id,
           extracted_data: audit_criteria ? { audit_criteria } : {},
+          ...(metadata?.agency && { agency: metadata.agency }),
+          ...(metadata?.modality && { modality: metadata.modality }),
+          ...(metadata?.estimated_value && { estimated_value: metadata.estimated_value }),
+          ...(metadata?.published_at && { published_at: metadata.published_at }),
+          ...(metadata?.description && { description: metadata.description }),
         })
         .select("id")
         .single();

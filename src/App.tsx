@@ -25,6 +25,7 @@ import StructuredOutput from "./pages/settings/StructuredOutput";
 import Trends from "./pages/Trends";
 import ConsolidatedReport from "./pages/ConsolidatedReport";
 import ImportPNCP from "./pages/ImportPNCP";
+import NewDocument from "./pages/NewDocument";
 
 const queryClient = new QueryClient();
 
@@ -40,6 +41,7 @@ const App = () => (
               <Route path="/auth" element={<Auth />} />
               <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
               <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />
+              <Route path="/documents/new" element={<ProtectedRoute><NewDocument /></ProtectedRoute>} />
               <Route path="/documents/:id" element={<ProtectedRoute><DocumentDetail /></ProtectedRoute>} />
               <Route path="/documents/:id/report" element={<ProtectedRoute><AuditReport /></ProtectedRoute>} />
               <Route path="/documents/:id/report/:reportId" element={<ProtectedRoute><AuditReport /></ProtectedRoute>} />
