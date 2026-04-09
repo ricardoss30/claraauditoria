@@ -491,9 +491,111 @@ serve(async (req) => {
     const promptMap: Record<string, string> = {};
     (promptSettings || []).forEach((s: any) => { promptMap[s.key] = s.value; });
 
-    // Fetch active rules
+    // Fetch active rules and separate by type
     const { data: rules } = await supabase.from("risk_rules").select("*").eq("is_active", true);
-    const rulesContext = (rules || [])
+    const allRules = rules || [];
+    const localRules = allRules.filter((r: any) => ["keyword", "numeric", "pattern"].includes(r.rule_type));
+    const aiRules = allRules.filter((r: any) => r.rule_type === "ai" || !["keyword", "numeric", "pattern"].includes(r.rule_type));
+
+    // --- Evaluate local (non-AI) rules programmatically ---
+    const localAlerts: any[] = [];
+
+    for (const rule of localRules) {
+      const params = rule.parameters || {};
+      const lowerContent = content.toLowerCase();
+
+      if (rule.rule_type === "keyword") {
+        const keywords: string[] = params.keywords || [];
+        const matched: string[] = [];
+        for (const kw of keywords) {
+          if (lowerContent.includes(kw.toLowerCase())) {
+            matched.push(kw);
+          }
+        }
+        if (matched.length > 0) {
+          // Extract evidence snippet around first match
+          const idx = lowerContent.indexOf(matched[0].toLowerCase());
+          const start = Math.max(0, idx - 80);
+          const end = Math.min(content.length, idx + matched[0].length + 80);
+          const snippet = content.substring(start, end);
+          localAlerts.push({
+            alert_type: rule.category,
+            title: `${rule.name}: palavras-chave encontradas`,
+            description: `Palavras-chave detectadas: ${matched.join(", ")}. ${rule.description || ""}`,
+            severity: rule.severity,
+            evidence: `...${snippet}...`,
+            criteria: `Regra automática: ${rule.name}`,
+            review_notes: rule.description || "Verificar ocorrência das palavras-chave identificadas.",
+            _rule_id: rule.id,
+          });
+        }
+      } else if (rule.rule_type === "numeric") {
+        const minVal = params.min_value != null ? Number(params.min_value) : null;
+        const maxVal = params.max_value != null ? Number(params.max_value) : null;
+        // Extract monetary values from text (R$ X.XXX,XX format)
+        const moneyRegex = /R\$\s*([\d.,]+)/gi;
+        let match;
+        const values: { raw: string; num: number; pos: number }[] = [];
+        while ((match = moneyRegex.exec(content)) !== null) {
+          const raw = match[1];
+          const num = parseFloat(raw.replace(/\./g, "").replace(",", "."));
+          if (!isNaN(num)) values.push({ raw: match[0], num, pos: match.index });
+        }
+        const violations = values.filter(v =>
+          (minVal != null && v.num < minVal) || (maxVal != null && v.num > maxVal)
+        );
+        if (violations.length > 0) {
+          const evidenceParts = violations.slice(0, 3).map(v => {
+            const start = Math.max(0, v.pos - 40);
+            const end = Math.min(content.length, v.pos + v.raw.length + 40);
+            return content.substring(start, end);
+          });
+          localAlerts.push({
+            alert_type: rule.category,
+            title: `${rule.name}: valor fora da faixa`,
+            description: `${violations.length} valor(es) fora da faixa permitida${minVal != null ? ` (mín: R$ ${minVal.toLocaleString("pt-BR")})` : ""}${maxVal != null ? ` (máx: R$ ${maxVal.toLocaleString("pt-BR")})` : ""}. ${rule.description || ""}`,
+            severity: rule.severity,
+            evidence: evidenceParts.map(e => `...${e}...`).join(" | "),
+            criteria: `Regra automática: ${rule.name}`,
+            review_notes: rule.description || "Verificar os valores monetários identificados fora da faixa esperada.",
+            _rule_id: rule.id,
+          });
+        }
+      } else if (rule.rule_type === "pattern") {
+        const pattern = params.pattern;
+        if (pattern) {
+          try {
+            const regex = new RegExp(pattern, "gi");
+            const matches: string[] = [];
+            let m;
+            while ((m = regex.exec(content)) !== null && matches.length < 5) {
+              const start = Math.max(0, m.index - 40);
+              const end = Math.min(content.length, m.index + m[0].length + 40);
+              matches.push(content.substring(start, end));
+            }
+            if (matches.length > 0) {
+              localAlerts.push({
+                alert_type: rule.category,
+                title: `${rule.name}: padrão detectado`,
+                description: `${matches.length} ocorrência(s) do padrão detectada(s). ${rule.description || ""}`,
+                severity: rule.severity,
+                evidence: matches.slice(0, 3).map(e => `...${e}...`).join(" | "),
+                criteria: `Regra automática: ${rule.name}`,
+                review_notes: rule.description || "Verificar as ocorrências do padrão identificado.",
+                _rule_id: rule.id,
+              });
+            }
+          } catch (regexErr) {
+            console.warn(`Invalid regex pattern for rule ${rule.name}:`, regexErr);
+          }
+        }
+      }
+    }
+
+    console.log(`Local rules evaluated: ${localRules.length} rules, ${localAlerts.length} alerts generated`);
+
+    // Build AI rules context (only ai-type rules)
+    const rulesContext = aiRules
       .map((r: any) => `- ${r.name} (${r.category}, severidade ${r.severity}): ${r.description || ""}`)
       .join("\n");
 
@@ -620,10 +722,10 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
     if (!toolCall) throw new Error("No tool call in AI response");
 
     const result = JSON.parse(toolCall.function.arguments);
-    const { extracted_data, risk_score, alerts } = result;
+    const { extracted_data, risk_score: aiRiskScore, alerts: aiAlerts } = result;
 
-    // Match alerts to rules
-    const ruleMap = new Map((rules || []).map((r: any) => [r.category, r]));
+    // Match AI alerts to rules
+    const ruleMap = new Map(allRules.map((r: any) => [r.category, r]));
     const legacyMap: Record<string, string> = {
       financeiro: "sobrepreco",
       competitividade: "direcionamento",
@@ -634,27 +736,30 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
       if (rule && !ruleMap.has(modern)) ruleMap.set(modern, rule);
     }
 
-    // Update document with extracted data
-    await supabase.from("procurement_documents").update({
-      title: extracted_data.title || undefined,
-      agency: extracted_data.agency || undefined,
-      modality: extracted_data.modality || undefined,
-      estimated_value: extracted_data.estimated_value || undefined,
-      deadline_at: extracted_data.deadline || undefined,
-      description: extracted_data.description || undefined,
-      extracted_data: { ...extracted_data, ...ragMetadata, ...(audit_criteria ? { audit_criteria } : {}) },
-      risk_score: Math.min(100, Math.max(0, Math.round(risk_score))),
-      status: "processed",
-    }).eq("id", document_id);
+    // Combine local + AI alerts
+    const combinedAlerts: any[] = [];
 
-    // Delete existing alerts for this document before inserting new ones
-    await supabase.from("risk_alerts").delete().eq("document_id", document_id);
+    // Add local alerts (already have rule_id)
+    for (const la of localAlerts) {
+      combinedAlerts.push({
+        document_id,
+        alert_type: la.alert_type,
+        title: la.title,
+        description: la.description,
+        severity: Math.min(5, Math.max(1, la.severity)),
+        evidence: la.evidence || null,
+        criteria: la.criteria || null,
+        review_notes: la.review_notes || null,
+        rule_id: la._rule_id || null,
+        status: "pending",
+      });
+    }
 
-    // Create alerts
-    if (alerts && alerts.length > 0) {
-      const alertRows = alerts.map((a: any) => {
+    // Add AI alerts
+    if (aiAlerts && aiAlerts.length > 0) {
+      for (const a of aiAlerts) {
         const matchedRule = ruleMap.get(a.alert_type);
-        return {
+        combinedAlerts.push({
           document_id,
           alert_type: a.alert_type,
           title: a.title,
@@ -665,9 +770,36 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
           review_notes: a.review_notes || null,
           rule_id: matchedRule?.id || null,
           status: "pending",
-        };
-      });
-      const { data: insertedAlerts } = await supabase.from("risk_alerts").insert(alertRows).select("id, title, severity, evidence");
+        });
+      }
+    }
+
+    // Calculate final risk_score: max between AI score and local severity-based score
+    const localMaxSeverity = localAlerts.length > 0 ? Math.max(...localAlerts.map((a: any) => a.severity)) : 0;
+    const localRiskScore = localMaxSeverity * 20; // severity 5 = 100
+    const finalRiskScore = Math.min(100, Math.max(0, Math.round(Math.max(aiRiskScore, localRiskScore))));
+
+    console.log(`Combined alerts: ${localAlerts.length} local + ${(aiAlerts || []).length} AI = ${combinedAlerts.length} total. Risk score: AI=${aiRiskScore}, local=${localRiskScore}, final=${finalRiskScore}`);
+
+    // Update document with extracted data
+    await supabase.from("procurement_documents").update({
+      title: extracted_data.title || undefined,
+      agency: extracted_data.agency || undefined,
+      modality: extracted_data.modality || undefined,
+      estimated_value: extracted_data.estimated_value || undefined,
+      deadline_at: extracted_data.deadline || undefined,
+      description: extracted_data.description || undefined,
+      extracted_data: { ...extracted_data, ...ragMetadata, ...(audit_criteria ? { audit_criteria } : {}) },
+      risk_score: finalRiskScore,
+      status: "processed",
+    }).eq("id", document_id);
+
+    // Delete existing alerts for this document before inserting new ones
+    await supabase.from("risk_alerts").delete().eq("document_id", document_id);
+
+    // Create alerts
+    if (combinedAlerts.length > 0) {
+      const { data: insertedAlerts } = await supabase.from("risk_alerts").insert(combinedAlerts).select("id, title, severity, evidence");
 
       // Send notifications for high-severity alerts
       const criticalAlerts = (insertedAlerts || []).filter((a: any) => a.severity >= 4);
@@ -699,7 +831,7 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
         resource_id: document_id,
         user_id: callerId,
         ip_address: clientIp,
-        details: { risk_score, alerts_count: alerts.length },
+        details: { risk_score: finalRiskScore, alerts_count: combinedAlerts.length, local_alerts: localAlerts.length, ai_alerts: (aiAlerts || []).length },
       });
     }
 
@@ -712,7 +844,7 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
       tokens_used: aiData.usage?.total_tokens || null,
     });
 
-    return new Response(JSON.stringify({ success: true, risk_score, alerts_count: alerts?.length || 0 }), {
+    return new Response(JSON.stringify({ success: true, risk_score: finalRiskScore, alerts_count: combinedAlerts.length, local_alerts: localAlerts.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
