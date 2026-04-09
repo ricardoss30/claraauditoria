@@ -62,7 +62,7 @@ export function useRules(scope: "risk" | "analysis" = "risk") {
         user_id: user?.id,
       });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules", scope] }),
   });
 
   return { ...query, toggleActive, upsertRule, deleteRule };
