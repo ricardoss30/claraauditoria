@@ -1,4 +1,4 @@
-import { LayoutDashboard, FileText, AlertTriangle, Shield, Database, Settings, LogOut, ClipboardList, Users, Bot, User, Code, ChevronRight, TrendingUp, BarChart3, Download } from "lucide-react";
+import { LayoutDashboard, FileText, AlertTriangle, Shield, FileSearch, Database, Settings, LogOut, ClipboardList, Users, Bot, User, Code, ChevronRight, TrendingUp, BarChart3, Download } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/contexts/AuthContext";
