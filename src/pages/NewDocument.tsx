@@ -28,6 +28,7 @@ export default function NewDocument() {
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState("");
   const [criteria, setCriteria] = useState("");
+  const [analysisRuleIds, setAnalysisRuleIds] = useState<string[]>([]);
   const [documentId, setDocumentId] = useState<string | null>(null);
 
   const { upload, step, error, reset, extractionProgress, splitProgress, multiPartProgress } = useDocumentUpload();
