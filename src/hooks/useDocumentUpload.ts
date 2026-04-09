@@ -108,11 +108,12 @@ export function useDocumentUpload() {
     return { totalAlerts, combinedRiskScore: maxRiskScore };
   };
 
-  const upload = async ({ file, text, audit_criteria, analysis_rule_ids, metadata }: {
+  const upload = async ({ file, text, audit_criteria, analysis_rule_ids, risk_rule_ids, metadata }: {
     file?: File | null;
     text?: string;
     audit_criteria?: string;
     analysis_rule_ids?: string[];
+    risk_rule_ids?: string[];
     metadata?: {
       title?: string;
       agency?: string;
@@ -197,7 +198,7 @@ export function useDocumentUpload() {
           file_url: fileUrl,
           raw_content: needsMultiPart ? `[PDF grande em processamento: ${file!.name}]` : rawContent,
           created_by: user.user?.id,
-          extracted_data: { ...(audit_criteria ? { audit_criteria } : {}), ...(analysis_rule_ids?.length ? { analysis_rule_ids } : {}) },
+          extracted_data: { ...(audit_criteria ? { audit_criteria } : {}), ...(analysis_rule_ids?.length ? { analysis_rule_ids } : {}), ...(risk_rule_ids?.length ? { risk_rule_ids } : {}) },
           ...(metadata?.agency && { agency: metadata.agency }),
           ...(metadata?.modality && { modality: metadata.modality }),
           ...(metadata?.estimated_value && { estimated_value: metadata.estimated_value }),
@@ -234,7 +235,7 @@ export function useDocumentUpload() {
       setStep("extracting");
 
       const { data: fnData, error: fnErr } = await supabase.functions.invoke("process-document", {
-        body: { document_id: doc.id, content: rawContent, audit_criteria: audit_criteria || "", analysis_rule_ids: analysis_rule_ids || [] },
+        body: { document_id: doc.id, content: rawContent, audit_criteria: audit_criteria || "", analysis_rule_ids: analysis_rule_ids || [], risk_rule_ids: risk_rule_ids || [] },
       });
 
       if (fnErr) {

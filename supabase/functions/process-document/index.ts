@@ -435,7 +435,7 @@ serve(async (req) => {
     }
 
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
-    const { document_id, content: rawContent, audit_criteria, force_reextract, file_path, analysis_rule_ids } = await req.json();
+    const { document_id, content: rawContent, audit_criteria, force_reextract, file_path, analysis_rule_ids, risk_rule_ids } = await req.json();
     if (!document_id) throw new Error("document_id is required");
 
     // Check cache first for deterministic results (skip if force reextract)
@@ -491,8 +491,12 @@ serve(async (req) => {
     const promptMap: Record<string, string> = {};
     (promptSettings || []).forEach((s: any) => { promptMap[s.key] = s.value; });
 
-    // Fetch active risk rules (all) + selected analysis rules
-    const { data: riskRules } = await supabase.from("risk_rules").select("*").eq("is_active", true).eq("rule_scope", "risk");
+    // Fetch risk rules: selected IDs or all active
+    let riskRulesQuery = supabase.from("risk_rules").select("*").eq("is_active", true).eq("rule_scope", "risk");
+    if (risk_rule_ids && Array.isArray(risk_rule_ids) && risk_rule_ids.length > 0) {
+      riskRulesQuery = riskRulesQuery.in("id", risk_rule_ids);
+    }
+    const { data: riskRules } = await riskRulesQuery;
     let analysisRules: any[] = [];
     if (analysis_rule_ids && Array.isArray(analysis_rule_ids) && analysis_rule_ids.length > 0) {
       const { data: selRules } = await supabase.from("risk_rules").select("*").in("id", analysis_rule_ids);
