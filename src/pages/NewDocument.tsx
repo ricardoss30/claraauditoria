@@ -86,6 +86,8 @@ export default function NewDocument() {
                 onTextChange={setText}
                 onNext={() => setCurrentStep(3)}
                 onBack={() => setCurrentStep(1)}
+                selectedRuleIds={analysisRuleIds}
+                onAnalysisRulesChange={setAnalysisRuleIds}
               />
             )}
             {currentStep === 3 && (
