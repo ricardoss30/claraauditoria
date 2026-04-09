@@ -108,10 +108,11 @@ export function useDocumentUpload() {
     return { totalAlerts, combinedRiskScore: maxRiskScore };
   };
 
-  const upload = async ({ file, text, audit_criteria, metadata }: {
+  const upload = async ({ file, text, audit_criteria, analysis_rule_ids, metadata }: {
     file?: File | null;
     text?: string;
     audit_criteria?: string;
+    analysis_rule_ids?: string[];
     metadata?: {
       title?: string;
       agency?: string;
