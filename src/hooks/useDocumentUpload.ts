@@ -234,7 +234,7 @@ export function useDocumentUpload() {
       setStep("extracting");
 
       const { data: fnData, error: fnErr } = await supabase.functions.invoke("process-document", {
-        body: { document_id: doc.id, content: rawContent, audit_criteria: audit_criteria || "" },
+        body: { document_id: doc.id, content: rawContent, audit_criteria: audit_criteria || "", analysis_rule_ids: analysis_rule_ids || [] },
       });
 
       if (fnErr) {
