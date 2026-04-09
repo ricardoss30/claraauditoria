@@ -722,10 +722,10 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
     if (!toolCall) throw new Error("No tool call in AI response");
 
     const result = JSON.parse(toolCall.function.arguments);
-    const { extracted_data, risk_score, alerts } = result;
+    const { extracted_data, risk_score: aiRiskScore, alerts: aiAlerts } = result;
 
-    // Match alerts to rules
-    const ruleMap = new Map((rules || []).map((r: any) => [r.category, r]));
+    // Match AI alerts to rules
+    const ruleMap = new Map(allRules.map((r: any) => [r.category, r]));
     const legacyMap: Record<string, string> = {
       financeiro: "sobrepreco",
       competitividade: "direcionamento",
@@ -736,27 +736,30 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
       if (rule && !ruleMap.has(modern)) ruleMap.set(modern, rule);
     }
 
-    // Update document with extracted data
-    await supabase.from("procurement_documents").update({
-      title: extracted_data.title || undefined,
-      agency: extracted_data.agency || undefined,
-      modality: extracted_data.modality || undefined,
-      estimated_value: extracted_data.estimated_value || undefined,
-      deadline_at: extracted_data.deadline || undefined,
-      description: extracted_data.description || undefined,
-      extracted_data: { ...extracted_data, ...ragMetadata, ...(audit_criteria ? { audit_criteria } : {}) },
-      risk_score: Math.min(100, Math.max(0, Math.round(risk_score))),
-      status: "processed",
-    }).eq("id", document_id);
+    // Combine local + AI alerts
+    const combinedAlerts: any[] = [];
 
-    // Delete existing alerts for this document before inserting new ones
-    await supabase.from("risk_alerts").delete().eq("document_id", document_id);
+    // Add local alerts (already have rule_id)
+    for (const la of localAlerts) {
+      combinedAlerts.push({
+        document_id,
+        alert_type: la.alert_type,
+        title: la.title,
+        description: la.description,
+        severity: Math.min(5, Math.max(1, la.severity)),
+        evidence: la.evidence || null,
+        criteria: la.criteria || null,
+        review_notes: la.review_notes || null,
+        rule_id: la._rule_id || null,
+        status: "pending",
+      });
+    }
 
-    // Create alerts
-    if (alerts && alerts.length > 0) {
-      const alertRows = alerts.map((a: any) => {
+    // Add AI alerts
+    if (aiAlerts && aiAlerts.length > 0) {
+      for (const a of aiAlerts) {
         const matchedRule = ruleMap.get(a.alert_type);
-        return {
+        combinedAlerts.push({
           document_id,
           alert_type: a.alert_type,
           title: a.title,
@@ -767,9 +770,36 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
           review_notes: a.review_notes || null,
           rule_id: matchedRule?.id || null,
           status: "pending",
-        };
-      });
-      const { data: insertedAlerts } = await supabase.from("risk_alerts").insert(alertRows).select("id, title, severity, evidence");
+        });
+      }
+    }
+
+    // Calculate final risk_score: max between AI score and local severity-based score
+    const localMaxSeverity = localAlerts.length > 0 ? Math.max(...localAlerts.map((a: any) => a.severity)) : 0;
+    const localRiskScore = localMaxSeverity * 20; // severity 5 = 100
+    const finalRiskScore = Math.min(100, Math.max(0, Math.round(Math.max(aiRiskScore, localRiskScore))));
+
+    console.log(`Combined alerts: ${localAlerts.length} local + ${(aiAlerts || []).length} AI = ${combinedAlerts.length} total. Risk score: AI=${aiRiskScore}, local=${localRiskScore}, final=${finalRiskScore}`);
+
+    // Update document with extracted data
+    await supabase.from("procurement_documents").update({
+      title: extracted_data.title || undefined,
+      agency: extracted_data.agency || undefined,
+      modality: extracted_data.modality || undefined,
+      estimated_value: extracted_data.estimated_value || undefined,
+      deadline_at: extracted_data.deadline || undefined,
+      description: extracted_data.description || undefined,
+      extracted_data: { ...extracted_data, ...ragMetadata, ...(audit_criteria ? { audit_criteria } : {}) },
+      risk_score: finalRiskScore,
+      status: "processed",
+    }).eq("id", document_id);
+
+    // Delete existing alerts for this document before inserting new ones
+    await supabase.from("risk_alerts").delete().eq("document_id", document_id);
+
+    // Create alerts
+    if (combinedAlerts.length > 0) {
+      const { data: insertedAlerts } = await supabase.from("risk_alerts").insert(combinedAlerts).select("id, title, severity, evidence");
 
       // Send notifications for high-severity alerts
       const criticalAlerts = (insertedAlerts || []).filter((a: any) => a.severity >= 4);
