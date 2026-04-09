@@ -46,7 +46,7 @@ export function useRules(scope: "risk" | "analysis" = "risk") {
         details: { name: rule.name },
       });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules", scope] }),
   });
 
   const deleteRule = useMutation({
