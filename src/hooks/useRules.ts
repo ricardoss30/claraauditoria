@@ -22,7 +22,7 @@ export function useRules(scope: "risk" | "analysis" = "risk") {
       const { error } = await supabase.from("risk_rules").update({ is_active }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules", scope] }),
   });
 
   const upsertRule = useMutation({
