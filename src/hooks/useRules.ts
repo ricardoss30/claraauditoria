@@ -1,15 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-export function useRules() {
+export function useRules(scope: "risk" | "analysis" = "risk") {
   const queryClient = useQueryClient();
 
   const query = useQuery({
-    queryKey: ["rules"],
+    queryKey: ["rules", scope],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("risk_rules")
         .select("*")
+        .eq("rule_scope" as any, scope)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
