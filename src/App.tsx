@@ -11,7 +11,8 @@ import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Documents from "./pages/Documents";
 import Alerts from "./pages/Alerts";
-import Rules from "./pages/Rules";
+import RiskRules from "./pages/RiskRules";
+import AnalysisRules from "./pages/AnalysisRules";
 import Sources from "./pages/Sources";
 import Settings from "./pages/Settings";
 import DocumentDetail from "./pages/DocumentDetail";
@@ -46,7 +47,8 @@ const App = () => (
               <Route path="/documents/:id/report" element={<ProtectedRoute><AuditReport /></ProtectedRoute>} />
               <Route path="/documents/:id/report/:reportId" element={<ProtectedRoute><AuditReport /></ProtectedRoute>} />
               <Route path="/alerts" element={<ProtectedRoute><Alerts /></ProtectedRoute>} />
-              <Route path="/rules" element={<ProtectedRoute><Rules /></ProtectedRoute>} />
+              <Route path="/rules/risk" element={<ProtectedRoute><RiskRules /></ProtectedRoute>} />
+              <Route path="/rules/analysis" element={<ProtectedRoute><AnalysisRules /></ProtectedRoute>} />
               <Route path="/sources" element={<ProtectedRoute><Sources /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>}>
                 <Route path="users" element={<UsersManagement />} />

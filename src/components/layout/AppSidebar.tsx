@@ -1,4 +1,4 @@
-import { LayoutDashboard, FileText, AlertTriangle, Shield, Database, Settings, LogOut, ClipboardList, Users, Bot, User, Code, ChevronRight, TrendingUp, BarChart3, Download } from "lucide-react";
+import { LayoutDashboard, FileText, AlertTriangle, Shield, FileSearch, Database, Settings, LogOut, ClipboardList, Users, Bot, User, Code, ChevronRight, TrendingUp, BarChart3, Download } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { useAuth } from "@/contexts/AuthContext";
@@ -37,7 +37,8 @@ export function AppSidebar() {
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
     { title: "Documentos", url: "/documents", icon: FileText },
     { title: "Alertas", url: "/alerts", icon: AlertTriangle },
-    { title: "Regras", url: "/rules", icon: Shield },
+    { title: "Regras de Risco", url: "/rules/risk", icon: Shield },
+    { title: "Regras de Análise", url: "/rules/analysis", icon: FileSearch },
     { title: "Tendências", url: "/trends", icon: TrendingUp },
     { title: "Relatórios", url: "/reports", icon: BarChart3 },
     { title: "Importar Editais", url: "/import", icon: Download },

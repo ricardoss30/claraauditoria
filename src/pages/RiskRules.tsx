@@ -21,8 +21,8 @@ import { toast } from "sonner";
 
 const defaultForm = { name: "", description: "", category: "sobrepreco", rule_type: "keyword", severity: 3 };
 
-export default function Rules() {
-  const { data, isLoading, toggleActive, upsertRule, deleteRule } = useRules();
+export default function RiskRules() {
+  const { data, isLoading, toggleActive, upsertRule, deleteRule } = useRules("risk");
   const { hasAnyRole } = useAuth();
   const canManage = hasAnyRole(["admin", "gestor"]);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -57,7 +57,7 @@ export default function Rules() {
         {isLoading ? (
           <div className="grid gap-4 md:grid-cols-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-40" />)}</div>
         ) : !data || data.length === 0 ? (
-          <EmptyState icon={Shield} title="Nenhuma regra cadastrada" description="Configure regras parametrizadas para análise automática de documentos." />
+          <EmptyState icon={Shield} title="Nenhuma regra de risco cadastrada" description="Configure regras parametrizadas para análise automática de riscos em documentos." />
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {data.map((rule) => (
@@ -110,7 +110,7 @@ export default function Rules() {
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent>
-            <DialogHeader><DialogTitle>{editId ? "Editar Regra" : "Nova Regra"}</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle>{editId ? "Editar Regra" : "Nova Regra de Risco"}</DialogTitle></DialogHeader>
             <div className="space-y-4">
               <div><Label>Nome</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
               <div><Label>Descrição</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>

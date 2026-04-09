@@ -1,15 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
-export function useRules() {
+export function useRules(scope: "risk" | "analysis" = "risk") {
   const queryClient = useQueryClient();
 
   const query = useQuery({
-    queryKey: ["rules"],
+    queryKey: ["rules", scope],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase
         .from("risk_rules")
-        .select("*")
+        .select("*") as any)
+        .eq("rule_scope", scope)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
@@ -21,7 +22,7 @@ export function useRules() {
       const { error } = await supabase.from("risk_rules").update({ is_active }).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules", scope] }),
   });
 
   const upsertRule = useMutation({
@@ -33,7 +34,7 @@ export function useRules() {
       const safeParams = parameters as any;
       const { error } = id
         ? await supabase.from("risk_rules").update({ ...rest, parameters: safeParams } as any).eq("id", id)
-        : await supabase.from("risk_rules").insert({ ...rest, parameters: safeParams } as any);
+        : await supabase.from("risk_rules").insert({ ...rest, parameters: safeParams, rule_scope: scope } as any);
       if (error) throw error;
 
       const { data: { user } } = await supabase.auth.getUser();
@@ -45,7 +46,7 @@ export function useRules() {
         details: { name: rule.name },
       });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules", scope] }),
   });
 
   const deleteRule = useMutation({
@@ -61,7 +62,7 @@ export function useRules() {
         user_id: user?.id,
       });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules", scope] }),
   });
 
   return { ...query, toggleActive, upsertRule, deleteRule };
