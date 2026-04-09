@@ -831,7 +831,7 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
         resource_id: document_id,
         user_id: callerId,
         ip_address: clientIp,
-        details: { risk_score, alerts_count: alerts.length },
+        details: { risk_score: finalRiskScore, alerts_count: combinedAlerts.length, local_alerts: localAlerts.length, ai_alerts: (aiAlerts || []).length },
       });
     }
 
