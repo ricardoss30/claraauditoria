@@ -1,29 +1,62 @@
 
 
-## Corrigir menu "Regras" com submenus colapsáveis
+## Cadastro dinâmico de Categorias e Tipos de Regra
 
-O problema: "Regras de Risco" e "Regras de Análise" estão como itens soltos no menu principal (linhas 40-41), sem um menu pai "Regras". Precisam ficar como submenus de um grupo colapsável "Regras", igual ao padrão já usado em "Configurações".
+Criar duas tabelas no Supabase para armazenar categorias e tipos de regra customizados, e adicionar botões de gerenciamento nas páginas de regras.
 
-### Alteração
+### Banco de dados
 
-| Arquivo | O que muda |
-|---------|-----------|
-| `src/components/layout/AppSidebar.tsx` | Remover "Regras de Risco" e "Regras de Análise" do array `mainItems`. Adicionar um bloco `Collapsible` com label "Regras" (ícone `Shield`) entre os itens do menu principal, contendo dois subitens: "Regras de Risco" (`/rules/risk`) e "Regras de Análise" (`/rules/analysis`). Usar `defaultOpen` baseado em `location.pathname.startsWith("/rules")`. Mesmo padrão visual do grupo "Configurações". |
+**Tabela `rule_categories`**:
+- `id uuid PK default gen_random_uuid()`
+- `name text NOT NULL` (valor slug, ex: "sobrepreco")
+- `label text NOT NULL` (nome exibido, ex: "Sobrepreço")
+- `scope text NOT NULL default 'risk'` ("risk" ou "analysis")
+- `created_at timestamptz default now()`
+- RLS: SELECT para authenticated, ALL para admin/gestor
+- Seed com as 4 categorias existentes (sobrepreco, direcionamento, prazo_exiguo, outro) para scope "risk" e "analysis"
+
+**Tabela `rule_types`**:
+- `id uuid PK default gen_random_uuid()`
+- `name text NOT NULL` (valor slug, ex: "keyword")
+- `label text NOT NULL` (nome exibido, ex: "Palavra-chave")
+- `scope text NOT NULL default 'risk'`
+- `created_at timestamptz default now()`
+- RLS: SELECT para authenticated, ALL para admin/gestor
+- Seed com os 4 tipos existentes (keyword, numeric, pattern, ai) para ambos os scopes
+
+### Hook compartilhado
+
+**Novo `src/hooks/useRuleOptions.ts`**:
+- Queries para `rule_categories` e `rule_types` filtrados por scope
+- Mutations para criar e excluir categorias/tipos
+- Exporta `{ categories, types, addCategory, deleteCategory, addType, deleteType }`
+
+### Alterações nas páginas
+
+**`src/pages/RiskRules.tsx` e `src/pages/AnalysisRules.tsx`**:
+- Importar `useRuleOptions(scope)`
+- Adicionar dois botões ao lado de "Nova Regra": "Categorias" e "Tipos de Regra"
+- Cada botão abre um Dialog com lista das opções existentes (com botão de excluir) e um campo + botão para adicionar nova
+- Nos selects de Categoria e Tipo de Regra do formulário de regra, usar os dados dinâmicos do hook em vez das opções hardcoded
 
 ### Resultado visual
 
 ```text
-Menu Principal
-  Dashboard
-  Documentos
-  Alertas
-  ▸ Regras              ← grupo colapsável (novo)
-      Regras de Risco
-      Regras de Análise
-  Tendências
-  Relatórios
-  Importar Editais
-  Base de Conhecimento
-  Auditoria
+[+ Nova Regra]  [Categorias]  [Tipos de Regra]
+```
+
+Cada dialog de gerenciamento:
+```text
+┌─ Gerenciar Categorias ──────────┐
+│                                  │
+│  Sobrepreço              [🗑]   │
+│  Direcionamento          [🗑]   │
+│  Prazo Exíguo            [🗑]   │
+│  Outro                   [🗑]   │
+│                                  │
+│  [___Nome___] [___Label___] [+] │
+│                                  │
+│                      [Fechar]    │
+└──────────────────────────────────┘
 ```
 
