@@ -34,10 +34,10 @@ const SECTION_LABELS: Record<keyof ReportContent, string> = {
   analise_tecnica: "6. Análise Técnica",
   constatacoes: "7. Constatações/Achados e Evidências",
   avaliacao_risco: "8. Avaliação de Risco",
-  recomendacoes: "9. Recomendações",
-  plano_acao: "10. Plano de Ação Sugerido",
-  conclusao: "11. Conclusão",
-  anexos: "12. Anexos",
+  recomendacoes: "9. Recomendações de Auditoria",
+  plano_acao: "10. Plano de Ação",
+  conclusao: "11. Conclusão e Parecer",
+  anexos: "12. Evidências de Auditoria",
 };
 
 const SECTION_KEYS: (keyof ReportContent)[] = [
