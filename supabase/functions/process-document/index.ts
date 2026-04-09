@@ -491,9 +491,111 @@ serve(async (req) => {
     const promptMap: Record<string, string> = {};
     (promptSettings || []).forEach((s: any) => { promptMap[s.key] = s.value; });
 
-    // Fetch active rules
+    // Fetch active rules and separate by type
     const { data: rules } = await supabase.from("risk_rules").select("*").eq("is_active", true);
-    const rulesContext = (rules || [])
+    const allRules = rules || [];
+    const localRules = allRules.filter((r: any) => ["keyword", "numeric", "pattern"].includes(r.rule_type));
+    const aiRules = allRules.filter((r: any) => r.rule_type === "ai" || !["keyword", "numeric", "pattern"].includes(r.rule_type));
+
+    // --- Evaluate local (non-AI) rules programmatically ---
+    const localAlerts: any[] = [];
+
+    for (const rule of localRules) {
+      const params = rule.parameters || {};
+      const lowerContent = content.toLowerCase();
+
+      if (rule.rule_type === "keyword") {
+        const keywords: string[] = params.keywords || [];
+        const matched: string[] = [];
+        for (const kw of keywords) {
+          if (lowerContent.includes(kw.toLowerCase())) {
+            matched.push(kw);
+          }
+        }
+        if (matched.length > 0) {
+          // Extract evidence snippet around first match
+          const idx = lowerContent.indexOf(matched[0].toLowerCase());
+          const start = Math.max(0, idx - 80);
+          const end = Math.min(content.length, idx + matched[0].length + 80);
+          const snippet = content.substring(start, end);
+          localAlerts.push({
+            alert_type: rule.category,
+            title: `${rule.name}: palavras-chave encontradas`,
+            description: `Palavras-chave detectadas: ${matched.join(", ")}. ${rule.description || ""}`,
+            severity: rule.severity,
+            evidence: `...${snippet}...`,
+            criteria: `Regra automática: ${rule.name}`,
+            review_notes: rule.description || "Verificar ocorrência das palavras-chave identificadas.",
+            _rule_id: rule.id,
+          });
+        }
+      } else if (rule.rule_type === "numeric") {
+        const minVal = params.min_value != null ? Number(params.min_value) : null;
+        const maxVal = params.max_value != null ? Number(params.max_value) : null;
+        // Extract monetary values from text (R$ X.XXX,XX format)
+        const moneyRegex = /R\$\s*([\d.,]+)/gi;
+        let match;
+        const values: { raw: string; num: number; pos: number }[] = [];
+        while ((match = moneyRegex.exec(content)) !== null) {
+          const raw = match[1];
+          const num = parseFloat(raw.replace(/\./g, "").replace(",", "."));
+          if (!isNaN(num)) values.push({ raw: match[0], num, pos: match.index });
+        }
+        const violations = values.filter(v =>
+          (minVal != null && v.num < minVal) || (maxVal != null && v.num > maxVal)
+        );
+        if (violations.length > 0) {
+          const evidenceParts = violations.slice(0, 3).map(v => {
+            const start = Math.max(0, v.pos - 40);
+            const end = Math.min(content.length, v.pos + v.raw.length + 40);
+            return content.substring(start, end);
+          });
+          localAlerts.push({
+            alert_type: rule.category,
+            title: `${rule.name}: valor fora da faixa`,
+            description: `${violations.length} valor(es) fora da faixa permitida${minVal != null ? ` (mín: R$ ${minVal.toLocaleString("pt-BR")})` : ""}${maxVal != null ? ` (máx: R$ ${maxVal.toLocaleString("pt-BR")})` : ""}. ${rule.description || ""}`,
+            severity: rule.severity,
+            evidence: evidenceParts.map(e => `...${e}...`).join(" | "),
+            criteria: `Regra automática: ${rule.name}`,
+            review_notes: rule.description || "Verificar os valores monetários identificados fora da faixa esperada.",
+            _rule_id: rule.id,
+          });
+        }
+      } else if (rule.rule_type === "pattern") {
+        const pattern = params.pattern;
+        if (pattern) {
+          try {
+            const regex = new RegExp(pattern, "gi");
+            const matches: string[] = [];
+            let m;
+            while ((m = regex.exec(content)) !== null && matches.length < 5) {
+              const start = Math.max(0, m.index - 40);
+              const end = Math.min(content.length, m.index + m[0].length + 40);
+              matches.push(content.substring(start, end));
+            }
+            if (matches.length > 0) {
+              localAlerts.push({
+                alert_type: rule.category,
+                title: `${rule.name}: padrão detectado`,
+                description: `${matches.length} ocorrência(s) do padrão detectada(s). ${rule.description || ""}`,
+                severity: rule.severity,
+                evidence: matches.slice(0, 3).map(e => `...${e}...`).join(" | "),
+                criteria: `Regra automática: ${rule.name}`,
+                review_notes: rule.description || "Verificar as ocorrências do padrão identificado.",
+                _rule_id: rule.id,
+              });
+            }
+          } catch (regexErr) {
+            console.warn(`Invalid regex pattern for rule ${rule.name}:`, regexErr);
+          }
+        }
+      }
+    }
+
+    console.log(`Local rules evaluated: ${localRules.length} rules, ${localAlerts.length} alerts generated`);
+
+    // Build AI rules context (only ai-type rules)
+    const rulesContext = aiRules
       .map((r: any) => `- ${r.name} (${r.category}, severidade ${r.severity}): ${r.description || ""}`)
       .join("\n");
 
