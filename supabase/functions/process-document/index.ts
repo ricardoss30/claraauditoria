@@ -844,7 +844,7 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
       tokens_used: aiData.usage?.total_tokens || null,
     });
 
-    return new Response(JSON.stringify({ success: true, risk_score, alerts_count: alerts?.length || 0 }), {
+    return new Response(JSON.stringify({ success: true, risk_score: finalRiskScore, alerts_count: combinedAlerts.length, local_alerts: localAlerts.length }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
