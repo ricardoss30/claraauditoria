@@ -491,9 +491,15 @@ serve(async (req) => {
     const promptMap: Record<string, string> = {};
     (promptSettings || []).forEach((s: any) => { promptMap[s.key] = s.value; });
 
-    // Fetch active rules and separate by type
-    const { data: rules } = await supabase.from("risk_rules").select("*").eq("is_active", true);
-    const allRules = rules || [];
+    // Fetch active risk rules (all) + selected analysis rules
+    const { data: riskRules } = await supabase.from("risk_rules").select("*").eq("is_active", true).eq("rule_scope", "risk");
+    let analysisRules: any[] = [];
+    if (analysis_rule_ids && Array.isArray(analysis_rule_ids) && analysis_rule_ids.length > 0) {
+      const { data: selRules } = await supabase.from("risk_rules").select("*").in("id", analysis_rule_ids);
+      analysisRules = selRules || [];
+    }
+    const allRules = [...(riskRules || []), ...analysisRules];
+    console.log(`Rules loaded: ${riskRules?.length || 0} risk + ${analysisRules.length} analysis = ${allRules.length} total`);
     const localRules = allRules.filter((r: any) => ["keyword", "numeric", "pattern"].includes(r.rule_type));
     const aiRules = allRules.filter((r: any) => r.rule_type === "ai" || !["keyword", "numeric", "pattern"].includes(r.rule_type));
 
