@@ -435,7 +435,7 @@ serve(async (req) => {
     }
 
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
-    const { document_id, content: rawContent, audit_criteria, force_reextract, file_path } = await req.json();
+    const { document_id, content: rawContent, audit_criteria, force_reextract, file_path, analysis_rule_ids } = await req.json();
     if (!document_id) throw new Error("document_id is required");
 
     // Check cache first for deterministic results (skip if force reextract)
