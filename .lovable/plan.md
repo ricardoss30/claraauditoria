@@ -1,30 +1,29 @@
 
 
-## Criar submenus "Regras de Risco" e "Regras de Análise"
+## Corrigir menu "Regras" com submenus colapsáveis
 
-Separar a página atual de Regras em duas abas/subpáginas dentro de um menu expansível, usando a mesma tabela `risk_rules` com um campo discriminador para distinguir os dois tipos.
+O problema: "Regras de Risco" e "Regras de Análise" estão como itens soltos no menu principal (linhas 40-41), sem um menu pai "Regras". Precisam ficar como submenus de um grupo colapsável "Regras", igual ao padrão já usado em "Configurações".
 
-### Abordagem
-
-Adicionar uma coluna `rule_scope` (ou usar a coluna `category` existente) na tabela `risk_rules` para diferenciar regras de risco de regras de análise. Usar o valor `"risk"` (padrão) e `"analysis"`. As regras cujo nome começa com `#` serão migradas automaticamente para `scope = "analysis"`.
-
-### Alterações
+### Alteração
 
 | Arquivo | O que muda |
 |---------|-----------|
-| **Migration** | Adicionar coluna `rule_scope text not null default 'risk'` na tabela `risk_rules`. UPDATE para setar `rule_scope = 'analysis'` onde `name LIKE '#%'` |
-| `src/hooks/useRules.ts` | Receber parâmetro `scope` (`"risk"` ou `"analysis"`), filtrar query com `.eq("rule_scope", scope)`. No upsert, incluir `rule_scope` |
-| `src/pages/RiskRules.tsx` | **Novo** — Copia a lógica de `Rules.tsx` mas usa `useRules("risk")`, título "Regras de Risco" |
-| `src/pages/AnalysisRules.tsx` | **Novo** — Mesma interface, usa `useRules("analysis")`, título "Regras de Análise" |
-| `src/pages/Rules.tsx` | Remove — substituído pelas duas novas páginas |
-| `src/App.tsx` | Substituir rota `/rules` por `/rules/risk` e `/rules/analysis`, importar novas páginas |
-| `src/components/layout/AppSidebar.tsx` | Substituir item "Regras" por um grupo colapsável com dois subitens: "Regras de Risco" (`/rules/risk`) e "Regras de Análise" (`/rules/analysis`) |
-| `src/integrations/supabase/types.ts` | Adicionar `rule_scope` ao tipo da tabela `risk_rules` |
+| `src/components/layout/AppSidebar.tsx` | Remover "Regras de Risco" e "Regras de Análise" do array `mainItems`. Adicionar um bloco `Collapsible` com label "Regras" (ícone `Shield`) entre os itens do menu principal, contendo dois subitens: "Regras de Risco" (`/rules/risk`) e "Regras de Análise" (`/rules/analysis`). Usar `defaultOpen` baseado em `location.pathname.startsWith("/rules")`. Mesmo padrão visual do grupo "Configurações". |
 
-### Detalhes técnicos
+### Resultado visual
 
-- A migration adiciona a coluna e faz o UPDATE em uma só transação
-- O hook `useRules(scope)` filtra no `.select()` com `.eq("rule_scope", scope)` e passa o scope no insert
-- O sidebar usa `Collapsible` (mesmo padrão já usado para Configurações) com ícone `Shield`
-- As duas páginas são idênticas em funcionalidade, apenas filtram por scope diferente
+```text
+Menu Principal
+  Dashboard
+  Documentos
+  Alertas
+  ▸ Regras              ← grupo colapsável (novo)
+      Regras de Risco
+      Regras de Análise
+  Tendências
+  Relatórios
+  Importar Editais
+  Base de Conhecimento
+  Auditoria
+```
 
