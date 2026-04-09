@@ -70,6 +70,47 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+
+              {/* Regras - collapsible group */}
+              <li>
+                <Collapsible defaultOpen={isRulesActive}>
+                  <CollapsibleTrigger className="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent">
+                    <span className="flex items-center gap-2"><Shield className="h-4 w-4" /> Regras</span>
+                    <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-data-[state=open]:rotate-90" />
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarMenu className="ml-4 border-l border-sidebar-border pl-2">
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink to="/rules/risk" className={linkClass} activeClassName={activeClass}>
+                            <Shield className="h-4 w-4" />
+                            <span>Regras de Risco</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton asChild>
+                          <NavLink to="/rules/analysis" className={linkClass} activeClassName={activeClass}>
+                            <FileSearch className="h-4 w-4" />
+                            <span>Regras de Análise</span>
+                          </NavLink>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    </SidebarMenu>
+                  </CollapsibleContent>
+                </Collapsible>
+              </li>
+
+              {afterRulesItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild>
+                    <NavLink to={item.url} className={linkClass} activeClassName={activeClass}>
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
               {canAccessAudit && (
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild>
