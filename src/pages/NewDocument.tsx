@@ -29,6 +29,7 @@ export default function NewDocument() {
   const [text, setText] = useState("");
   const [criteria, setCriteria] = useState("");
   const [analysisRuleIds, setAnalysisRuleIds] = useState<string[]>([]);
+  const [riskRuleIds, setRiskRuleIds] = useState<string[]>([]);
   const [documentId, setDocumentId] = useState<string | null>(null);
 
   const { upload, step, error, reset, extractionProgress, splitProgress, multiPartProgress } = useDocumentUpload();
@@ -40,6 +41,7 @@ export default function NewDocument() {
       text: text || undefined,
       audit_criteria: criteria,
       analysis_rule_ids: analysisRuleIds.length > 0 ? analysisRuleIds : undefined,
+      risk_rule_ids: riskRuleIds.length > 0 ? riskRuleIds : undefined,
       metadata: {
         title: metadata.title,
         agency: metadata.agency || undefined,
@@ -88,6 +90,8 @@ export default function NewDocument() {
                 onBack={() => setCurrentStep(1)}
                 selectedRuleIds={analysisRuleIds}
                 onAnalysisRulesChange={setAnalysisRuleIds}
+                selectedRiskRuleIds={riskRuleIds}
+                onRiskRulesChange={setRiskRuleIds}
               />
             )}
             {currentStep === 3 && (
