@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useRules } from "@/hooks/useRules";
+import { useRuleOptions } from "@/hooks/useRuleOptions";
 import { useAuth } from "@/contexts/AuthContext";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,8 @@ import { Label } from "@/components/ui/label";
 import { SeverityIndicator } from "@/components/SeverityIndicator";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/ui/badge";
-import { FileSearch, Plus, Pencil, Trash2 } from "lucide-react";
+import { RuleOptionsDialog } from "@/components/RuleOptionsDialog";
+import { FileSearch, Plus, Pencil, Trash2, Tags, ListTree } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 
@@ -23,9 +25,12 @@ const defaultForm = { name: "", description: "", category: "sobrepreco", rule_ty
 
 export default function AnalysisRules() {
   const { data, isLoading, toggleActive, upsertRule, deleteRule } = useRules("analysis");
+  const { categories, types, addCategory, deleteCategory, addType, deleteType } = useRuleOptions("analysis");
   const { hasAnyRole } = useAuth();
   const canManage = hasAnyRole(["admin", "gestor"]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [catDialogOpen, setCatDialogOpen] = useState(false);
+  const [typeDialogOpen, setTypeDialogOpen] = useState(false);
   const [form, setForm] = useState<any>(defaultForm);
   const [editId, setEditId] = useState<string | null>(null);
 
@@ -51,7 +56,13 @@ export default function AnalysisRules() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold">Regras de Análise</h1>
-          {canManage && <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Nova Regra</Button>}
+          {canManage && (
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setCatDialogOpen(true)}><Tags className="h-4 w-4 mr-2" />Categorias</Button>
+              <Button variant="outline" onClick={() => setTypeDialogOpen(true)}><ListTree className="h-4 w-4 mr-2" />Tipos de Regra</Button>
+              <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" />Nova Regra</Button>
+            </div>
+          )}
         </div>
 
         {isLoading ? (
@@ -73,8 +84,8 @@ export default function AnalysisRules() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline">{rule.category}</Badge>
-                    <Badge variant="secondary">{rule.rule_type}</Badge>
+                    <Badge variant="outline">{categories.data?.find(c => c.name === rule.category)?.label ?? rule.category}</Badge>
+                    <Badge variant="secondary">{types.data?.find(t => t.name === rule.rule_type)?.label ?? rule.rule_type}</Badge>
                     {!rule.is_active && <Badge variant="destructive">Inativa</Badge>}
                   </div>
                   <SeverityIndicator severity={rule.severity} />
@@ -120,10 +131,9 @@ export default function AnalysisRules() {
                   <Select value={form.category} onValueChange={(v) => setForm({ ...form, category: v })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="sobrepreco">Sobrepreço</SelectItem>
-                      <SelectItem value="direcionamento">Direcionamento</SelectItem>
-                      <SelectItem value="prazo_exiguo">Prazo Exíguo</SelectItem>
-                      <SelectItem value="outro">Outro</SelectItem>
+                      {categories.data?.map((c) => (
+                        <SelectItem key={c.id} value={c.name}>{c.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -132,10 +142,9 @@ export default function AnalysisRules() {
                   <Select value={form.rule_type} onValueChange={(v) => setForm({ ...form, rule_type: v })}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="keyword">Palavra-chave</SelectItem>
-                      <SelectItem value="numeric">Numérico</SelectItem>
-                      <SelectItem value="pattern">Padrão</SelectItem>
-                      <SelectItem value="ai">IA</SelectItem>
+                      {types.data?.map((t) => (
+                        <SelectItem key={t.id} value={t.name}>{t.label}</SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -151,6 +160,9 @@ export default function AnalysisRules() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <RuleOptionsDialog open={catDialogOpen} onOpenChange={setCatDialogOpen} title="Gerenciar Categorias" items={categories.data} isLoading={categories.isLoading} addMutation={addCategory} deleteMutation={deleteCategory} />
+        <RuleOptionsDialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen} title="Gerenciar Tipos de Regra" items={types.data} isLoading={types.isLoading} addMutation={addType} deleteMutation={deleteType} />
       </div>
     </AppLayout>
   );
