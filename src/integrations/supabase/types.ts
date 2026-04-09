@@ -390,6 +390,7 @@ export type Database = {
           is_active: boolean
           name: string
           parameters: Json | null
+          rule_scope: string
           rule_type: string
           severity: number
           updated_at: string
@@ -403,6 +404,7 @@ export type Database = {
           is_active?: boolean
           name: string
           parameters?: Json | null
+          rule_scope?: string
           rule_type?: string
           severity?: number
           updated_at?: string
@@ -416,6 +418,7 @@ export type Database = {
           is_active?: boolean
           name?: string
           parameters?: Json | null
+          rule_scope?: string
           rule_type?: string
           severity?: number
           updated_at?: string
