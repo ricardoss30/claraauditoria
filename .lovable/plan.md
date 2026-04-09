@@ -1,32 +1,30 @@
 
 
-## Melhorar precisão da extração de metadados
+## Criar submenus "Regras de Risco" e "Regras de Análise"
 
-### Problemas identificados
+Separar a página atual de Regras em duas abas/subpáginas dentro de um menu expansível, usando a mesma tabela `risk_rules` com um campo discriminador para distinguir os dois tipos.
 
-1. **Modelo fraco**: `gemini-2.5-flash-lite` é o modelo mais leve, com menor capacidade de extração. Campos como valor estimado e data ficam vazios.
-2. **Texto truncado a 5000 caracteres**: Metadados importantes (valor, datas) frequentemente aparecem depois das primeiras páginas.
-3. **Prompt pouco detalhado**: O system prompt não orienta a IA sobre onde encontrar cada campo no documento.
-4. **Sem `max_tokens`**: A resposta pode ser truncada silenciosamente.
-5. **Sem extração de data de publicação**: O campo `published_at` não é extraído pela IA, apenas mantido vazio.
+### Abordagem
+
+Adicionar uma coluna `rule_scope` (ou usar a coluna `category` existente) na tabela `risk_rules` para diferenciar regras de risco de regras de análise. Usar o valor `"risk"` (padrão) e `"analysis"`. As regras cujo nome começa com `#` serão migradas automaticamente para `scope = "analysis"`.
 
 ### Alterações
 
 | Arquivo | O que muda |
 |---------|-----------|
-| `supabase/functions/extract-metadata/index.ts` | Upgrade do modelo para `gemini-2.5-flash`, aumento do texto para 12000 chars, adicionar `published_at` aos campos extraídos, melhorar system prompt com instruções detalhadas, adicionar `max_tokens: 2048` |
-| `src/components/wizard/StepDocumentData.tsx` | Mapear `published_at` retornado pela IA para o campo de data no formulário |
+| **Migration** | Adicionar coluna `rule_scope text not null default 'risk'` na tabela `risk_rules`. UPDATE para setar `rule_scope = 'analysis'` onde `name LIKE '#%'` |
+| `src/hooks/useRules.ts` | Receber parâmetro `scope` (`"risk"` ou `"analysis"`), filtrar query com `.eq("rule_scope", scope)`. No upsert, incluir `rule_scope` |
+| `src/pages/RiskRules.tsx` | **Novo** — Copia a lógica de `Rules.tsx` mas usa `useRules("risk")`, título "Regras de Risco" |
+| `src/pages/AnalysisRules.tsx` | **Novo** — Mesma interface, usa `useRules("analysis")`, título "Regras de Análise" |
+| `src/pages/Rules.tsx` | Remove — substituído pelas duas novas páginas |
+| `src/App.tsx` | Substituir rota `/rules` por `/rules/risk` e `/rules/analysis`, importar novas páginas |
+| `src/components/layout/AppSidebar.tsx` | Substituir item "Regras" por um grupo colapsável com dois subitens: "Regras de Risco" (`/rules/risk`) e "Regras de Análise" (`/rules/analysis`) |
+| `src/integrations/supabase/types.ts` | Adicionar `rule_scope` ao tipo da tabela `risk_rules` |
 
 ### Detalhes técnicos
 
-**Modelo**: `gemini-2.5-flash-lite` → `gemini-2.5-flash` (melhor raciocínio, mesmo custo baixo)
-
-**Texto enviado**: 5000 → 12000 caracteres (cobre mais páginas onde valores e datas aparecem)
-
-**Novo campo extraído**: `published_at` com descrição "Data de publicação no formato YYYY-MM-DD"
-
-**System prompt melhorado**:
-- Instruções específicas sobre onde encontrar cada campo (cabeçalho, preâmbulo, cláusulas financeiras)
-- Orientação para buscar variações comuns de nomenclatura (ex: "valor global", "valor total estimado", "preço máximo")
-- Instrução para extrair datas no formato ISO
+- A migration adiciona a coluna e faz o UPDATE em uma só transação
+- O hook `useRules(scope)` filtra no `.select()` com `.eq("rule_scope", scope)` e passa o scope no insert
+- O sidebar usa `Collapsible` (mesmo padrão já usado para Configurações) com ícone `Shield`
+- As duas páginas são idênticas em funcionalidade, apenas filtram por scope diferente
 
