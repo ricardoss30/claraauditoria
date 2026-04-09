@@ -39,6 +39,7 @@ export default function NewDocument() {
       file,
       text: text || undefined,
       audit_criteria: criteria,
+      analysis_rule_ids: analysisRuleIds.length > 0 ? analysisRuleIds : undefined,
       metadata: {
         title: metadata.title,
         agency: metadata.agency || undefined,
