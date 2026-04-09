@@ -197,7 +197,7 @@ export function useDocumentUpload() {
           file_url: fileUrl,
           raw_content: needsMultiPart ? `[PDF grande em processamento: ${file!.name}]` : rawContent,
           created_by: user.user?.id,
-          extracted_data: audit_criteria ? { audit_criteria } : {},
+          extracted_data: { ...(audit_criteria ? { audit_criteria } : {}), ...(analysis_rule_ids?.length ? { analysis_rule_ids } : {}) },
           ...(metadata?.agency && { agency: metadata.agency }),
           ...(metadata?.modality && { modality: metadata.modality }),
           ...(metadata?.estimated_value && { estimated_value: metadata.estimated_value }),
