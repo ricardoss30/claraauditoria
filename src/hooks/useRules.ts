@@ -7,10 +7,10 @@ export function useRules(scope: "risk" | "analysis" = "risk") {
   const query = useQuery({
     queryKey: ["rules", scope],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase
         .from("risk_rules")
-        .select("*")
-        .eq("rule_scope" as any, scope)
+        .select("*") as any)
+        .eq("rule_scope", scope)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data ?? [];
