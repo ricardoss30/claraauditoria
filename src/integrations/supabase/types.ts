@@ -425,6 +425,54 @@ export type Database = {
         }
         Relationships: []
       }
+      rule_categories: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+          name: string
+          scope: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+          name: string
+          scope?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+          name?: string
+          scope?: string
+        }
+        Relationships: []
+      }
+      rule_types: {
+        Row: {
+          created_at: string
+          id: string
+          label: string
+          name: string
+          scope: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          label: string
+          name: string
+          scope?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          label?: string
+          name?: string
+          scope?: string
+        }
+        Relationships: []
+      }
       setting_versions: {
         Row: {
           created_at: string | null
