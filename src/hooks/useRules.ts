@@ -34,7 +34,7 @@ export function useRules(scope: "risk" | "analysis" = "risk") {
       const safeParams = parameters as any;
       const { error } = id
         ? await supabase.from("risk_rules").update({ ...rest, parameters: safeParams } as any).eq("id", id)
-        : await supabase.from("risk_rules").insert({ ...rest, parameters: safeParams } as any);
+        : await supabase.from("risk_rules").insert({ ...rest, parameters: safeParams, rule_scope: scope } as any);
       if (error) throw error;
 
       const { data: { user } } = await supabase.auth.getUser();
