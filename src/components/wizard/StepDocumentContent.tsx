@@ -1,8 +1,21 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Upload, ArrowLeft, ArrowRight } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
+import { Upload, ArrowLeft, ArrowRight, ListChecks } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+
+interface AnalysisRule {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  rule_type: string;
+  severity: number;
+}
 
 interface Props {
   file: File | null;
@@ -11,11 +24,17 @@ interface Props {
   onTextChange: (text: string) => void;
   onNext: () => void;
   onBack: () => void;
+  selectedRuleIds: string[];
+  onAnalysisRulesChange: (ids: string[]) => void;
 }
 
-export function StepDocumentContent({ file, text, onFileChange, onTextChange, onNext, onBack }: Props) {
+export function StepDocumentContent({ file, text, onFileChange, onTextChange, onNext, onBack, selectedRuleIds, onAnalysisRulesChange }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [rules, setRules] = useState<AnalysisRule[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [tempSelected, setTempSelected] = useState<string[]>([]);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -25,6 +44,29 @@ export function StepDocumentContent({ file, text, onFileChange, onTextChange, on
   };
 
   const canAdvance = !!file || !!text.trim();
+
+  const openDialog = async () => {
+    setTempSelected([...selectedRuleIds]);
+    setDialogOpen(true);
+    setLoading(true);
+    const { data } = await (supabase
+      .from("risk_rules")
+      .select("id, name, description, category, rule_type, severity") as any)
+      .eq("rule_scope", "analysis")
+      .eq("is_active", true)
+      .order("name");
+    setRules(data || []);
+    setLoading(false);
+  };
+
+  const toggleRule = (id: string) => {
+    setTempSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const confirmSelection = () => {
+    onAnalysisRulesChange(tempSelected);
+    setDialogOpen(false);
+  };
 
   return (
     <div className="space-y-5">
@@ -72,6 +114,64 @@ export function StepDocumentContent({ file, text, onFileChange, onTextChange, on
           />
         </TabsContent>
       </Tabs>
+
+      {/* Analysis Rules Selection */}
+      <div className="flex items-center gap-3">
+        <Button variant="outline" type="button" onClick={openDialog}>
+          <ListChecks className="h-4 w-4 mr-2" />
+          Selecionar Regras de Análise
+          {selectedRuleIds.length > 0 && (
+            <Badge variant="secondary" className="ml-2">{selectedRuleIds.length}</Badge>
+          )}
+        </Button>
+        {selectedRuleIds.length > 0 && (
+          <span className="text-sm text-muted-foreground">
+            {selectedRuleIds.length} regra(s) selecionada(s)
+          </span>
+        )}
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Selecionar Regras de Análise</DialogTitle>
+          </DialogHeader>
+          {loading ? (
+            <p className="text-sm text-muted-foreground py-4">Carregando...</p>
+          ) : rules.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4">Nenhuma regra de análise ativa encontrada.</p>
+          ) : (
+            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+              {rules.map(rule => (
+                <label key={rule.id} className="flex items-start gap-3 cursor-pointer p-2 rounded-md hover:bg-muted/50">
+                  <Checkbox
+                    checked={tempSelected.includes(rule.id)}
+                    onCheckedChange={() => toggleRule(rule.id)}
+                    className="mt-0.5"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium">{rule.name}</p>
+                    {rule.description && (
+                      <p className="text-xs text-muted-foreground line-clamp-2">{rule.description}</p>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+          )}
+          <DialogFooter className="flex-row justify-between sm:justify-between">
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setTempSelected(rules.map(r => r.id))}>
+                Selecionar Todas
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setTempSelected([])}>
+                Limpar
+              </Button>
+            </div>
+            <Button onClick={confirmSelection}>Confirmar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="flex justify-between">
         <Button variant="outline" onClick={onBack}>
