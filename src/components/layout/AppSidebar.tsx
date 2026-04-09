@@ -33,12 +33,15 @@ export function AppSidebar() {
   const canAccessAudit = hasAnyRole(["admin", "gestor"]);
 
   // Build main items dynamically based on role
+  const isRulesActive = location.pathname.startsWith("/rules");
+
   const mainItems = [
     { title: "Dashboard", url: "/", icon: LayoutDashboard },
     { title: "Documentos", url: "/documents", icon: FileText },
     { title: "Alertas", url: "/alerts", icon: AlertTriangle },
-    { title: "Regras de Risco", url: "/rules/risk", icon: Shield },
-    { title: "Regras de Análise", url: "/rules/analysis", icon: FileSearch },
+  ];
+
+  const afterRulesItems = [
     { title: "Tendências", url: "/trends", icon: TrendingUp },
     { title: "Relatórios", url: "/reports", icon: BarChart3 },
     { title: "Importar Editais", url: "/import", icon: Download },
