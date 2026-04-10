@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "npm:@supabase/supabase-js@2";
 import { extractText } from "npm:unpdf@0.12.1";
 
 const corsHeaders = {
@@ -288,7 +287,7 @@ interface RagMetadata {
 }
 
 async function fetchKnowledgeBaseContext(
-  supabase: any, documentContent: string, lovableApiKey: string
+  supabase: any, documentContent: string
 ): Promise<{ context: string; metadata: RagMetadata }> {
   const noContext: { context: string; metadata: RagMetadata } = {
     context: "",
@@ -302,63 +301,12 @@ async function fetchKnowledgeBaseContext(
     // Try vector search first if embeddings exist
     let chunks: { content: string; file_name: string; similarity?: number; _score?: number }[] = [];
 
-    // Generate embedding for the document summary to use in vector search
-    const docSummary = documentContent.substring(0, 2000);
-    let queryEmbedding: number[] | null = null;
-
-    try {
-      const embResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${lovableApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-2.5-flash-lite",
-          messages: [
-            {
-              role: "system",
-              content: "You are an embedding generator. Given a text, output ONLY a JSON array of exactly 384 floating point numbers between -1 and 1 representing the semantic meaning of the text. No other text, no explanation, just the JSON array.",
-            },
-            { role: "user", content: docSummary },
-          ],
-        }),
-      });
-
-      if (embResponse.ok) {
-        const embData = await embResponse.json();
-        let content = embData.choices?.[0]?.message?.content?.trim();
-        if (content) {
-          content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-          const parsed = JSON.parse(content);
-          if (Array.isArray(parsed) && parsed.length === 384) {
-            queryEmbedding = parsed.map((n: any) => Number(n));
-          }
-        }
-      }
-    } catch (e) {
-      console.warn("Failed to generate query embedding, falling back to keyword ranking:", e);
-    }
-
-    if (queryEmbedding) {
-      const { data, error } = await supabase.rpc("match_knowledge", {
-        query_embedding: `[${queryEmbedding.join(",")}]`,
-        match_count: 30,
-      });
-
-      if (!error && data && data.length > 0) {
-        chunks = data;
-        ragMethod = "vector_search";
-        console.log(`Vector search returned ${chunks.length} chunks`);
-      }
-    }
-
-    // Fallback: keyword-ranked search
-    if (chunks.length === 0) {
+    // Keyword-ranked search (no embedding generation to save CPU)
+    {
       const { data, error } = await supabase
         .from("conhecimento_chunks")
         .select("content, file_name")
-        .limit(500);
+        .limit(100);
 
       if (!error && data && data.length > 0) {
         const keywords = extractKeywords(documentContent, 20);
@@ -398,7 +346,7 @@ async function fetchKnowledgeBaseContext(
   }
 }
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -610,7 +558,7 @@ serve(async (req) => {
       .join("\n");
 
     // Fetch knowledge base context
-    const { context: knowledgeBaseContext, metadata: ragMetadata } = await fetchKnowledgeBaseContext(supabase, content, lovableApiKey);
+    const { context: knowledgeBaseContext, metadata: ragMetadata } = await fetchKnowledgeBaseContext(supabase, content);
 
     // Call Lovable AI with tool calling for structured extraction
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
