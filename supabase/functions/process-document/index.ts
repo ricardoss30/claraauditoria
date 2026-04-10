@@ -558,7 +558,7 @@ Deno.serve(async (req) => {
       .join("\n");
 
     // Fetch knowledge base context
-    const { context: knowledgeBaseContext, metadata: ragMetadata } = await fetchKnowledgeBaseContext(supabase, content, lovableApiKey);
+    const { context: knowledgeBaseContext, metadata: ragMetadata } = await fetchKnowledgeBaseContext(supabase, content);
 
     // Call Lovable AI with tool calling for structured extraction
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
