@@ -287,7 +287,7 @@ interface RagMetadata {
 }
 
 async function fetchKnowledgeBaseContext(
-  supabase: any, documentContent: string, lovableApiKey: string
+  supabase: any, documentContent: string
 ): Promise<{ context: string; metadata: RagMetadata }> {
   const noContext: { context: string; metadata: RagMetadata } = {
     context: "",
