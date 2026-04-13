@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { extractTextFromPdf, type PdfExtractionProgress } from "@/lib/pdfExtractor";
 import { splitPdf, type SplitProgress } from "@/lib/pdfSplitter";
+import * as tus from "tus-js-client";
 
 export type UploadStep = "idle" | "extracting_local" | "splitting" | "uploading" | "extracting" | "analyzing" | "done" | "error";
 
@@ -12,12 +13,64 @@ export interface MultiPartProgress {
   totalParts: number;
 }
 
+const SUPABASE_URL = "https://ktqrkijazzpafmfbkohe.supabase.co";
+const SUPABASE_PROJECT_REF = "ktqrkijazzpafmfbkohe";
+const MAX_SIZE = 2000 * 1024 * 1024; // 2GB
+const TUS_THRESHOLD = 50 * 1024 * 1024; // 50MB — use TUS above this
+
+/**
+ * Upload a file using the TUS resumable protocol.
+ * Returns the storage path on success.
+ */
+async function uploadWithTus(
+  file: File,
+  storagePath: string,
+  onProgress?: (pct: number) => void,
+): Promise<string> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const accessToken = sessionData?.session?.access_token;
+
+  return new Promise<string>((resolve, reject) => {
+    const upload = new tus.Upload(file, {
+      endpoint: `https://${SUPABASE_PROJECT_REF}.supabase.co/storage/v1/upload/resumable`,
+      retryDelays: [0, 3000, 5000, 10000],
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "x-upsert": "true",
+      },
+      uploadDataDuringCreation: true,
+      removeFingerprintOnSuccess: true,
+      metadata: {
+        bucketName: "documents",
+        objectName: storagePath,
+        contentType: file.type || "application/octet-stream",
+        cacheControl: "3600",
+      },
+      chunkSize: 6 * 1024 * 1024, // 6MB chunks
+      onError(err) {
+        reject(new Error(`Upload resumable falhou: ${err.message}`));
+      },
+      onProgress(bytesUploaded, bytesTotal) {
+        onProgress?.(Math.round((bytesUploaded / bytesTotal) * 100));
+      },
+      onSuccess() {
+        resolve(storagePath);
+      },
+    });
+    upload.findPreviousUploads().then((prev) => {
+      if (prev.length) (upload as any).resumeUpload(prev[0]);
+      else upload.start();
+    });
+  });
+}
+
 export function useDocumentUpload() {
   const [step, setStep] = useState<UploadStep>("idle");
   const [error, setError] = useState<string | null>(null);
   const [extractionProgress, setExtractionProgress] = useState<PdfExtractionProgress | null>(null);
   const [splitProgress, setSplitProgress] = useState<SplitProgress | null>(null);
   const [multiPartProgress, setMultiPartProgress] = useState<MultiPartProgress | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -27,13 +80,29 @@ export function useDocumentUpload() {
     setExtractionProgress(null);
     setSplitProgress(null);
     setMultiPartProgress(null);
+    setUploadProgress(null);
   };
 
-  const uploadSinglePart = async (partFile: File): Promise<string> => {
-    const ext = partFile.name.split(".").pop();
+  const uploadFile = async (file: File): Promise<string> => {
+    const ext = file.name.split(".").pop();
     const path = `${crypto.randomUUID()}.${ext}`;
-    const { error: uploadErr } = await supabase.storage.from("documents").upload(path, partFile);
-    if (uploadErr) throw new Error(`Upload falhou: ${uploadErr.message}`);
+
+    if (file.size > TUS_THRESHOLD) {
+      return uploadWithTus(file, path, (pct) => setUploadProgress(pct));
+    }
+
+    const { error: uploadErr } = await supabase.storage.from("documents").upload(path, file);
+    if (uploadErr) {
+      if (
+        uploadErr.message?.includes("exceeded the maximum allowed size") ||
+        uploadErr.message?.includes("Payload too large")
+      ) {
+        throw new Error(
+          "O arquivo excede o limite de upload do Supabase. Acesse o dashboard do Supabase → Storage → Settings e aumente o 'Global file size limit' para o valor desejado."
+        );
+      }
+      throw new Error(`Upload falhou: ${uploadErr.message}`);
+    }
     return path;
   };
 
@@ -46,18 +115,15 @@ export function useDocumentUpload() {
     const parts = await splitPdf(file, (p) => setSplitProgress(p));
     setSplitProgress(null);
 
-    let combinedRawContent = "";
     let totalAlerts = 0;
     let maxRiskScore = 0;
 
     for (let i = 0; i < parts.length; i++) {
       setMultiPartProgress({ currentPart: i + 1, totalParts: parts.length });
 
-      // Upload part
       setStep("uploading");
-      const partPath = await uploadSinglePart(parts[i]);
+      const partPath = await uploadFile(parts[i]);
 
-      // Process part via edge function — pass file_path so it OCRs the chunk, not the original
       setStep("extracting");
       const invokeBody = {
         document_id: documentId,
@@ -74,11 +140,8 @@ export function useDocumentUpload() {
       if (fnErr) {
         const errMsg = fnErr.message || "";
         if (errMsg.includes("429")) {
-          // Wait and retry once on rate limit
           await new Promise((r) => setTimeout(r, 5000));
-          const retry = await supabase.functions.invoke("process-document", {
-            body: invokeBody,
-          });
+          const retry = await supabase.functions.invoke("process-document", { body: invokeBody });
           if (retry.error) throw new Error(retry.error.message || "Erro no processamento");
           if (retry.data) {
             totalAlerts += retry.data.alerts_count || 0;
@@ -92,13 +155,11 @@ export function useDocumentUpload() {
         maxRiskScore = Math.max(maxRiskScore, fnData.risk_score || 0);
       }
 
-      // Small delay between parts to avoid rate limits
       if (i < parts.length - 1) {
         await new Promise((r) => setTimeout(r, 2000));
       }
     }
 
-    // Update the main document with aggregate results
     await supabase.from("procurement_documents").update({
       status: "processed",
       risk_score: maxRiskScore,
@@ -125,32 +186,17 @@ export function useDocumentUpload() {
   }) => {
     try {
       setError(null);
-      setStep("uploading");
 
       let fileUrl: string | null = null;
       let rawContent = text || "";
       let needsMultiPart = false;
 
-      // Upload file to storage if provided
+      // ── Step 1: Extract text from PDF client-side BEFORE uploading ──
       if (file) {
-        const MAX_SIZE = 600 * 1024 * 1024; // 600MB
         if (file.size > MAX_SIZE) {
-          throw new Error("O arquivo excede o tamanho máximo de 600MB");
+          throw new Error("O arquivo excede o tamanho máximo de 2GB");
         }
-        const ext = file.name.split(".").pop();
-        const path = `${crypto.randomUUID()}.${ext}`;
-        const { error: uploadErr } = await supabase.storage.from("documents").upload(path, file);
-        if (uploadErr) {
-          if (uploadErr.message?.includes("exceeded the maximum allowed size") || uploadErr.message?.includes("Payload too large")) {
-            throw new Error(
-              "O arquivo excede o limite de upload do Supabase. Acesse o dashboard do Supabase → Storage → Settings e aumente o 'Global file size limit' para o valor desejado."
-            );
-          }
-          throw new Error(`Upload falhou: ${uploadErr.message}`);
-        }
-        fileUrl = path;
 
-        // For text files read content; for PDFs extract text client-side
         if (file.type === "text/plain") {
           rawContent = await file.text();
         } else if (file.type === "application/pdf") {
@@ -163,7 +209,6 @@ export function useDocumentUpload() {
               rawContent = pdfText;
               console.log(`Client-side PDF extraction: ${pdfText.length} chars from ${file.name}`);
             } else {
-              // Too little text — check if large enough to need splitting
               console.log(`Client-side extraction yielded only ${pdfText.length} chars`);
               if (file.size > 20 * 1024 * 1024) {
                 needsMultiPart = true;
@@ -180,15 +225,20 @@ export function useDocumentUpload() {
             }
           }
           setExtractionProgress(null);
-          setStep("uploading");
         } else {
           rawContent = text || `[Arquivo: ${file.name}]`;
         }
+
+        // ── Step 2: Upload the file to Storage ──
+        setStep("uploading");
+        setUploadProgress(0);
+        fileUrl = await uploadFile(file);
+        setUploadProgress(null);
       }
 
       if (!needsMultiPart && !rawContent.trim()) throw new Error("Nenhum conteúdo fornecido");
 
-      // Create document record
+      // ── Step 3: Create document record ──
       const { data: user } = await supabase.auth.getUser();
       const { data: doc, error: insertErr } = await supabase
         .from("procurement_documents")
@@ -210,13 +260,9 @@ export function useDocumentUpload() {
 
       if (insertErr) throw new Error(`Erro ao criar documento: ${insertErr.message}`);
 
-      // Multi-part processing for large scanned PDFs
+      // ── Step 4a: Multi-part processing for large scanned PDFs ──
       if (needsMultiPart && file) {
-        const { totalAlerts, combinedRiskScore } = await processMultiPart(
-          file,
-          doc.id,
-          audit_criteria || ""
-        );
+        const { totalAlerts, combinedRiskScore } = await processMultiPart(file, doc.id, audit_criteria || "");
 
         setStep("done");
         queryClient.invalidateQueries({ queryKey: ["documents"] });
@@ -227,11 +273,10 @@ export function useDocumentUpload() {
           title: "Documento processado (em partes)",
           description: `${totalAlerts} alerta(s) gerado(s). Score de risco: ${combinedRiskScore}`,
         });
-
         return doc.id;
       }
 
-      // Normal single-part processing
+      // ── Step 4b: Normal single-part processing ──
       setStep("extracting");
 
       const { data: fnData, error: fnErr } = await supabase.functions.invoke("process-document", {
@@ -257,7 +302,6 @@ export function useDocumentUpload() {
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
 
       toast({ title: "Documento processado", description: `${fnData?.alerts_count || 0} alerta(s) gerado(s). Score de risco: ${fnData?.risk_score ?? "N/A"}` });
-
       return doc.id;
     } catch (e: any) {
       console.error("Upload error:", e);
@@ -310,5 +354,5 @@ export function useDocumentUpload() {
     }
   };
 
-  return { upload, reprocess, step, error, reset, extractionProgress, splitProgress, multiPartProgress };
+  return { upload, reprocess, step, error, reset, extractionProgress, splitProgress, multiPartProgress, uploadProgress };
 }

@@ -28,10 +28,11 @@ interface Props {
   extractionProgress: PdfExtractionProgress | null;
   splitProgress: SplitProgress | null;
   multiPartProgress: MultiPartProgress | null;
+  uploadProgress?: number | null;
   onRetry: () => void;
 }
 
-export function StepProcessing({ step, error, documentId, extractionProgress, splitProgress, multiPartProgress, onRetry }: Props) {
+export function StepProcessing({ step, error, documentId, extractionProgress, splitProgress, multiPartProgress, uploadProgress, onRetry }: Props) {
   const navigate = useNavigate();
 
   const getStepLabel = () => {
@@ -40,6 +41,9 @@ export function StepProcessing({ step, error, documentId, extractionProgress, sp
     }
     if (step === "splitting" && splitProgress) {
       return `Dividindo PDF... (parte ${splitProgress.currentPart}/${splitProgress.totalParts})`;
+    }
+    if (step === "uploading" && uploadProgress != null) {
+      return `Enviando arquivo... ${uploadProgress}%`;
     }
     if (multiPartProgress) {
       return `${stepLabels[step]} (parte ${multiPartProgress.currentPart}/${multiPartProgress.totalParts})`;
