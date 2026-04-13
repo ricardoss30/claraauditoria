@@ -1,22 +1,46 @@
 
 
-## Fix: CPU Time Exceeded no process-document
+## Fix: Suporte a arquivos maiores que 600MB (1GB+)
 
 ### Problema
-A Edge Function `process-document` retorna status 546 (CPU Time exceeded) ao processar documentos. Os logs mostram que o tempo é consumido por:
-1. Imports antigos (`esm.sh`, `deno.land/std`) causando cold starts lentos
-2. Uma chamada extra de IA para gerar embeddings de busca vetorial (linhas 310-337)
-3. Busca de 500 chunks da knowledge base para ranking por palavras-chave (linha 361)
+O código atual tem um limite fixo de 600MB no client-side (linha 136 de `useDocumentUpload.ts`). Seu arquivo tem mais de 1GB, então o upload é bloqueado antes mesmo de tentar enviar.
+
+### Solução
+
+A abordagem mais eficiente para PDFs grandes e uma plataforma de auditoria: **extrair o texto no navegador primeiro, e fazer upload do arquivo usando Resumable Upload (protocolo TUS)** que o Supabase suporta nativamente para arquivos grandes.
 
 ### Alterações
 
 | Arquivo | O que muda |
 |---------|-----------|
-| `supabase/functions/process-document/index.ts` | (1) Substituir `import { serve } from "https://deno.land/std@0.168.0/http/server.ts"` por `Deno.serve()`. (2) Substituir `import { createClient } from "https://esm.sh/@supabase/supabase-js@2"` por `import { createClient } from "npm:@supabase/supabase-js@2"`. (3) Na busca de knowledge base, limitar query de chunks para 100 em vez de 500 (linha 361). (4) Remover a chamada de IA para gerar embeddings artificiais (linhas 309-341) -- usar apenas keyword ranking ou vector search via `match_knowledge` com embedding real se disponível no futuro. (5) Redeploy da função. |
+| `src/hooks/useDocumentUpload.ts` | (1) Aumentar `MAX_SIZE` de 600MB para 2GB. (2) Para arquivos >50MB, usar upload resumable via protocolo TUS do Supabase (`supabase.storage.from("documents").uploadToSignedUrl()` ou `createSignedUploadUrl` + `tus-js-client`). (3) Mover a extração de texto (client-side) para **antes** do upload do arquivo ao Storage, de modo que se a extração funcionar, o conteúdo já está disponível e o upload do arquivo serve apenas como backup/referência. (4) Adicionar progresso de upload para arquivos grandes. |
+| `src/lib/pdfSplitter.ts` | Nenhuma mudança necessária -- o splitting já funciona para PDFs grandes. |
+| `package.json` | Adicionar `tus-js-client` para upload resumable de arquivos grandes. |
 
-### Detalhes
+### Fluxo revisado para arquivos >50MB
 
-- A chamada extra ao Gemini para "gerar embedding fake" (array de 384 floats via chat completion) consome CPU significativo e produz embeddings de baixa qualidade. Removê-la elimina ~5-10s de processamento.
-- Reduzir de 500 para 100 chunks no fallback de keyword ranking reduz o tempo de scoring sem perda significativa de qualidade (os top 5 scores já mostram boa relevância).
-- Os imports `npm:` são resolvidos localmente pelo Deno runtime, evitando downloads e parsing de esm.sh durante cold start.
+```text
+1. Extração de texto client-side (pdfjs-dist) ← já implementado
+2. Se extração OK (>100 chars):
+   → Upload resumable do PDF ao Storage (com progresso)
+   → Criar documento com raw_content extraído
+   → Processar normalmente via process-document
+3. Se extração falhou (PDF escaneado):
+   → Dividir PDF em partes (5 páginas cada) ← já implementado
+   → Upload de cada parte separadamente
+   → Processar multi-part ← já implementado
+```
+
+### Detalhes do Upload Resumable
+
+O Supabase Storage suporta nativamente o protocolo TUS para uploads de arquivos grandes. Isso permite:
+- Upload em chunks (não precisa carregar tudo na memória de uma vez)
+- Retomada automática em caso de falha de rede
+- Progresso de upload em tempo real
+
+A configuração do bucket `documents` no Supabase Dashboard precisa ter o limite global de arquivo configurado para pelo menos 2GB (Settings > Storage > Global file size limit).
+
+### Ação necessária do usuário
+
+Antes da implementacao, voce precisa acessar o **Supabase Dashboard > Storage > Settings** e aumentar o **Global file size limit** para pelo menos 2GB, pois esse limite tem precedencia sobre o limite individual do bucket.
 
