@@ -32,7 +32,7 @@ export default function NewDocument() {
   const [riskRuleIds, setRiskRuleIds] = useState<string[]>([]);
   const [documentId, setDocumentId] = useState<string | null>(null);
 
-  const { upload, step, error, reset, extractionProgress, splitProgress, multiPartProgress } = useDocumentUpload();
+  const { upload, step, error, reset, extractionProgress, splitProgress, multiPartProgress, uploadProgress } = useDocumentUpload();
 
   const handleSubmit = async () => {
     setCurrentStep(4);
@@ -110,6 +110,7 @@ export default function NewDocument() {
                 extractionProgress={extractionProgress}
                 splitProgress={splitProgress}
                 multiPartProgress={multiPartProgress}
+                uploadProgress={uploadProgress}
                 onRetry={handleRetry}
               />
             )}
