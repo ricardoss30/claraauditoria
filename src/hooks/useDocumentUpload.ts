@@ -58,7 +58,7 @@ async function uploadWithTus(
       },
     });
     upload.findPreviousUploads().then((prev) => {
-      if (prev.length) upload.resumeUpload(prev[0]);
+      if (prev.length) upload.resumeUpload(prev[0] as any);
       else upload.start();
     });
   });
