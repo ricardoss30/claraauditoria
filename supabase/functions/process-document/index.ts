@@ -364,18 +364,15 @@ Deno.serve(async (req) => {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const supabaseAuth = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-      global: { headers: { Authorization: authHeader } },
-    });
     const token = authHeader.replace("Bearer ", "");
-    const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    if (userError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    const callerId = claimsData.claims.sub as string;
-    const { data: callerRoles } = await supabaseAuth.from("user_roles").select("role").eq("user_id", callerId);
+    const callerId = user.id;
+    const { data: callerRoles } = await supabase.from("user_roles").select("role").eq("user_id", callerId);
     if (!callerRoles?.some((r: any) => ["admin", "gestor"].includes(r.role))) {
       return new Response(JSON.stringify({ error: "Permission denied" }), {
         status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
