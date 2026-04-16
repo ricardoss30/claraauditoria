@@ -22,8 +22,9 @@ const ACCEPTED_TYPES = [
   "application/pdf",
   "text/plain",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
 ];
-const ACCEPTED_EXTENSIONS = ".pdf,.txt,.docx";
+const ACCEPTED_EXTENSIONS = ".pdf,.txt,.docx,.doc";
 
 function formatBytes(bytes: number) {
   if (!bytes) return "—";
@@ -85,7 +86,7 @@ export default function Sources() {
     if (!uploadFiles) return;
     const validFiles = Array.from(uploadFiles).filter((f) => ACCEPTED_TYPES.includes(f.type));
     if (validFiles.length === 0) {
-      toast.error("Apenas PDF, TXT e DOCX são aceitos.");
+      toast.error("Apenas PDF, TXT, DOCX e DOC são aceitos.");
       return;
     }
     Promise.all(
@@ -264,7 +265,7 @@ export default function Sources() {
             >
               <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
               <p className="text-sm text-muted-foreground mb-2">Arraste arquivos aqui ou clique para selecionar</p>
-              <p className="text-xs text-muted-foreground mb-4">PDF, TXT, DOCX</p>
+              <p className="text-xs text-muted-foreground mb-4">PDF, TXT, DOCX, DOC</p>
               <input ref={fileInputRef} type="file" accept={ACCEPTED_EXTENSIONS} multiple className="hidden" onChange={(e) => handleUpload(e.target.files)} />
               <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploadMutation.isPending}>
                 {uploadMutation.isPending ? "Enviando..." : "Selecionar Arquivos"}
