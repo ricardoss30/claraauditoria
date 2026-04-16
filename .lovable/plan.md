@@ -1,19 +1,34 @@
 
 
-## Adicionar suporte a arquivos .doc na Base de Conhecimento
+## Fix: Upload de .doc rejeitado por MIME type inconsistente
 
 ### Problema
-O upload na Base de Conhecimento (`Sources.tsx`) aceita apenas PDF, TXT e DOCX. Arquivos `.doc` (formato legado do Word) são rejeitados.
+A validação de upload em `Sources.tsx` usa apenas o MIME type do arquivo (`f.type`). Em muitos sistemas operacionais, arquivos `.doc` são reportados pelo navegador com MIME types inconsistentes como `application/octet-stream` ou string vazia, em vez de `application/msword`. Isso faz com que o filtro rejeite o arquivo mesmo sendo um formato válido.
 
-### Alterações
+### Solução
+Adicionar validação por **extensão de arquivo** como fallback quando o MIME type não bate. Se o arquivo tiver uma extensão aceita (`.pdf`, `.txt`, `.docx`, `.doc`), deve ser permitido mesmo que o MIME type seja genérico.
+
+### Alteração
 
 | Arquivo | O que muda |
 |---------|-----------|
-| `src/pages/Sources.tsx` | Adicionar `"application/msword"` ao array `ACCEPTED_TYPES`, adicionar `.doc` ao `ACCEPTED_EXTENSIONS`, e atualizar a mensagem de erro e o texto da UI para incluir DOC. |
+| `src/pages/Sources.tsx` | Alterar a função de filtro em `handleUpload` (linha 87) para aceitar arquivos tanto por MIME type quanto por extensão do nome do arquivo. |
 
-### Detalhes
-- `ACCEPTED_TYPES`: adicionar `"application/msword"` (MIME type do `.doc`)
-- `ACCEPTED_EXTENSIONS`: mudar de `".pdf,.txt,.docx"` para `".pdf,.txt,.docx,.doc"`
-- Texto de erro: `"Apenas PDF, TXT, DOCX e DOC são aceitos."`
-- Label de UI: `"PDF, TXT, DOCX, DOC"`
+### Código atual (linha 87)
+```typescript
+const validFiles = Array.from(uploadFiles).filter((f) => ACCEPTED_TYPES.includes(f.type));
+```
+
+### Código corrigido
+```typescript
+const ACCEPTED_EXT_LIST = ["pdf", "txt", "docx", "doc"];
+
+const validFiles = Array.from(uploadFiles).filter((f) => {
+  if (ACCEPTED_TYPES.includes(f.type)) return true;
+  const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+  return ACCEPTED_EXT_LIST.includes(ext);
+});
+```
+
+Isso garante que `.doc` (e outros formatos) sejam aceitos independentemente do MIME type reportado pelo navegador.
 
