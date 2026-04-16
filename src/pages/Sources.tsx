@@ -25,6 +25,7 @@ const ACCEPTED_TYPES = [
   "application/msword",
 ];
 const ACCEPTED_EXTENSIONS = ".pdf,.txt,.docx,.doc";
+const ACCEPTED_EXT_LIST = ["pdf", "txt", "docx", "doc"];
 
 function formatBytes(bytes: number) {
   if (!bytes) return "—";
