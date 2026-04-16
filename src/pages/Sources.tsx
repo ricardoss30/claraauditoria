@@ -25,6 +25,7 @@ const ACCEPTED_TYPES = [
   "application/msword",
 ];
 const ACCEPTED_EXTENSIONS = ".pdf,.txt,.docx,.doc";
+const ACCEPTED_EXT_LIST = ["pdf", "txt", "docx", "doc"];
 
 function formatBytes(bytes: number) {
   if (!bytes) return "—";
@@ -84,7 +85,11 @@ export default function Sources() {
 
   const handleUpload = (uploadFiles: FileList | null) => {
     if (!uploadFiles) return;
-    const validFiles = Array.from(uploadFiles).filter((f) => ACCEPTED_TYPES.includes(f.type));
+    const validFiles = Array.from(uploadFiles).filter((f) => {
+      if (ACCEPTED_TYPES.includes(f.type)) return true;
+      const ext = f.name.split(".").pop()?.toLowerCase() ?? "";
+      return ACCEPTED_EXT_LIST.includes(ext);
+    });
     if (validFiles.length === 0) {
       toast.error("Apenas PDF, TXT, DOCX e DOC são aceitos.");
       return;
