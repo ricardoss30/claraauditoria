@@ -1,37 +1,19 @@
 
 
-## Fix: Edge Function `process-document` — método `getClaims` inválido
+## Adicionar suporte a arquivos .doc na Base de Conhecimento
 
 ### Problema
-Na linha 371 de `supabase/functions/process-document/index.ts`, o código chama `supabaseAuth.auth.getClaims(token)`, que **não existe** no SDK `@supabase/supabase-js`. Isso causa um crash na função, resultando no erro genérico "Edge Function returned a non-2xx status code".
+O upload na Base de Conhecimento (`Sources.tsx`) aceita apenas PDF, TXT e DOCX. Arquivos `.doc` (formato legado do Word) são rejeitados.
 
-### Causa
-Provavelmente introduzido em uma refatoração anterior. O método correto para validar o JWT e obter o usuário é `auth.getUser(token)`.
-
-### Alteração
+### Alterações
 
 | Arquivo | O que muda |
 |---------|-----------|
-| `supabase/functions/process-document/index.ts` | Substituir `auth.getClaims(token)` por `auth.getUser(token)` e ajustar a extração do `callerId` de `claimsData.claims.sub` para `userData.user.id`. Usar o `supabase` (service role) para validação do token conforme padrão do projeto. |
+| `src/pages/Sources.tsx` | Adicionar `"application/msword"` ao array `ACCEPTED_TYPES`, adicionar `.doc` ao `ACCEPTED_EXTENSIONS`, e atualizar a mensagem de erro e o texto da UI para incluir DOC. |
 
-### Código atual (linhas 367-377)
-```typescript
-const supabaseAuth = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
-  global: { headers: { Authorization: authHeader } },
-});
-const token = authHeader.replace("Bearer ", "");
-const { data: claimsData, error: claimsError } = await supabaseAuth.auth.getClaims(token);
-if (claimsError || !claimsData?.claims) { ... }
-const callerId = claimsData.claims.sub as string;
-```
-
-### Código corrigido
-```typescript
-const token = authHeader.replace("Bearer ", "");
-const { data: { user }, error: userError } = await supabase.auth.getUser(token);
-if (userError || !user) { ... }
-const callerId = user.id;
-```
-
-Depois: redeploy da função `process-document`.
+### Detalhes
+- `ACCEPTED_TYPES`: adicionar `"application/msword"` (MIME type do `.doc`)
+- `ACCEPTED_EXTENSIONS`: mudar de `".pdf,.txt,.docx"` para `".pdf,.txt,.docx,.doc"`
+- Texto de erro: `"Apenas PDF, TXT, DOCX e DOC são aceitos."`
+- Label de UI: `"PDF, TXT, DOCX, DOC"`
 
