@@ -66,14 +66,14 @@ export function StepProcessing({ step, error, documentId, extractionProgress, sp
 
   if (step === "error") {
     const rawError = error || "Erro desconhecido";
-    const isOcrTimeout = /CPU Time|non-2xx|escaneado|timeout|AbortError/i.test(rawError);
+    const isOcrTimeout = /CPU Time|non-2xx|escaneado|timeout|AbortError|extrair texto|OCR|iLovePDF|comprima|comprimir|única página/i.test(rawError);
     return (
       <div className="space-y-4 py-8 text-center">
         <AlertCircle className="h-12 w-12 mx-auto text-destructive" />
-        <p className="text-sm text-destructive">{rawError}</p>
+        <p className="text-sm text-destructive whitespace-pre-wrap">{rawError}</p>
         {isOcrTimeout && (
           <p className="text-xs text-muted-foreground max-w-md mx-auto">
-            Dica: documentos escaneados grandes excedem o limite de processamento. Divida o PDF em arquivos menores (até 5MB cada) usando ferramentas como iLovePDF ou SmallPDF e envie-os separadamente.
+            Dica: documentos escaneados grandes excedem o limite de processamento. Comprima o PDF (ex.: iLovePDF "Compress PDF") ou divida-o em arquivos menores (até 5MB cada) e envie novamente. Alternativa: cole o texto manualmente na aba "Colar Texto".
           </p>
         )}
         <Button variant="outline" onClick={onRetry}>Tentar novamente</Button>

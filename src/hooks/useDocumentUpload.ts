@@ -8,6 +8,38 @@ import * as tus from "tus-js-client";
 
 export type UploadStep = "idle" | "extracting_local" | "splitting" | "uploading" | "extracting" | "analyzing" | "done" | "error";
 
+/**
+ * Extract a useful error message from a supabase.functions.invoke() error.
+ * The default `error.message` is generic ("Edge Function returned a non-2xx status code");
+ * the real backend message is in `error.context` (a Response object).
+ */
+async function extractInvokeError(fnErr: any, fallback = "Erro no processamento"): Promise<string> {
+  if (!fnErr) return fallback;
+  try {
+    const ctx = fnErr.context;
+    if (ctx && typeof ctx.json === "function") {
+      const body = await ctx.clone().json().catch(async () => {
+        const txt = await ctx.clone().text().catch(() => "");
+        return txt ? { error: txt } : null;
+      });
+      if (body?.error) return typeof body.error === "string" ? body.error : JSON.stringify(body.error);
+    } else if (ctx && typeof ctx.text === "function") {
+      const txt = await ctx.clone().text().catch(() => "");
+      if (txt) {
+        try {
+          const parsed = JSON.parse(txt);
+          if (parsed?.error) return typeof parsed.error === "string" ? parsed.error : JSON.stringify(parsed.error);
+        } catch {
+          return txt;
+        }
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  return fnErr.message || fallback;
+}
+
 export interface MultiPartProgress {
   currentPart: number;
   totalParts: number;
@@ -138,17 +170,20 @@ export function useDocumentUpload() {
       });
 
       if (fnErr) {
-        const errMsg = fnErr.message || "";
-        if (errMsg.includes("429")) {
+        const errMsg = await extractInvokeError(fnErr);
+        if (errMsg.includes("429") || errMsg.toLowerCase().includes("rate limit")) {
           await new Promise((r) => setTimeout(r, 5000));
           const retry = await supabase.functions.invoke("process-document", { body: invokeBody });
-          if (retry.error) throw new Error(retry.error.message || "Erro no processamento");
+          if (retry.error) {
+            const retryMsg = await extractInvokeError(retry.error);
+            throw new Error(retryMsg);
+          }
           if (retry.data) {
             totalAlerts += retry.data.alerts_count || 0;
             maxRiskScore = Math.max(maxRiskScore, retry.data.risk_score || 0);
           }
         } else {
-          throw new Error(errMsg || "Erro no processamento");
+          throw new Error(errMsg);
         }
       } else if (fnData) {
         totalAlerts += fnData.alerts_count || 0;
@@ -201,6 +236,8 @@ export function useDocumentUpload() {
           rawContent = await file.text();
         } else if (file.type === "application/pdf") {
           setStep("extracting_local");
+          // Trigger multipart for any scanned PDF likely to exceed the OCR limit (8MB).
+          const NEEDS_SPLIT_BYTES = 8 * 1024 * 1024;
           try {
             const pdfText = await extractTextFromPdf(file, (progress) => {
               setExtractionProgress(progress);
@@ -210,7 +247,7 @@ export function useDocumentUpload() {
               console.log(`Client-side PDF extraction: ${pdfText.length} chars from ${file.name}`);
             } else {
               console.log(`Client-side extraction yielded only ${pdfText.length} chars`);
-              if (file.size > 20 * 1024 * 1024) {
+              if (file.size > NEEDS_SPLIT_BYTES) {
                 needsMultiPart = true;
               } else {
                 rawContent = `[Arquivo PDF: ${file.name}]`;
@@ -218,7 +255,7 @@ export function useDocumentUpload() {
             }
           } catch (pdfErr: any) {
             console.warn("Client-side PDF extraction failed:", pdfErr.message);
-            if (file.size > 20 * 1024 * 1024) {
+            if (file.size > NEEDS_SPLIT_BYTES) {
               needsMultiPart = true;
             } else {
               rawContent = `[Arquivo PDF: ${file.name}]`;
@@ -230,10 +267,13 @@ export function useDocumentUpload() {
         }
 
         // ── Step 2: Upload the file to Storage ──
-        setStep("uploading");
-        setUploadProgress(0);
-        fileUrl = await uploadFile(file);
-        setUploadProgress(null);
+        // Skip the full-file upload for multipart — each part will be uploaded individually.
+        if (!needsMultiPart) {
+          setStep("uploading");
+          setUploadProgress(0);
+          fileUrl = await uploadFile(file);
+          setUploadProgress(null);
+        }
       }
 
       if (!needsMultiPart && !rawContent.trim()) throw new Error("Nenhum conteúdo fornecido");
@@ -284,13 +324,13 @@ export function useDocumentUpload() {
       });
 
       if (fnErr) {
-        const errMsg = fnErr.message || "";
-        if (errMsg.includes("429") || errMsg.includes("Rate limit")) {
+        const errMsg = await extractInvokeError(fnErr);
+        if (errMsg.includes("429") || errMsg.toLowerCase().includes("rate limit")) {
           toast({ title: "Limite de requisições", description: "Aguarde alguns minutos e tente novamente.", variant: "destructive" });
-        } else if (errMsg.includes("402") || errMsg.includes("Payment")) {
+        } else if (errMsg.includes("402") || errMsg.toLowerCase().includes("payment")) {
           toast({ title: "Créditos insuficientes", description: "Adicione créditos ao workspace para continuar.", variant: "destructive" });
         }
-        throw new Error(errMsg || "Erro no processamento");
+        throw new Error(errMsg);
       }
 
       setStep("analyzing");
@@ -324,13 +364,13 @@ export function useDocumentUpload() {
       });
 
       if (fnErr) {
-        const errMsg = fnErr.message || "";
-        if (errMsg.includes("429") || errMsg.includes("Rate limit")) {
+        const errMsg = await extractInvokeError(fnErr);
+        if (errMsg.includes("429") || errMsg.toLowerCase().includes("rate limit")) {
           toast({ title: "Limite de requisições", description: "Aguarde alguns minutos e tente novamente.", variant: "destructive" });
-        } else if (errMsg.includes("402") || errMsg.includes("Payment")) {
+        } else if (errMsg.includes("402") || errMsg.toLowerCase().includes("payment")) {
           toast({ title: "Créditos insuficientes", description: "Adicione créditos ao workspace para continuar.", variant: "destructive" });
         }
-        throw new Error(errMsg || "Erro no processamento");
+        throw new Error(errMsg);
       }
 
       setStep("analyzing");
