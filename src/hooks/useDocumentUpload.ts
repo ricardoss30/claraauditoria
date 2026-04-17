@@ -170,17 +170,20 @@ export function useDocumentUpload() {
       });
 
       if (fnErr) {
-        const errMsg = fnErr.message || "";
-        if (errMsg.includes("429")) {
+        const errMsg = await extractInvokeError(fnErr);
+        if (errMsg.includes("429") || errMsg.toLowerCase().includes("rate limit")) {
           await new Promise((r) => setTimeout(r, 5000));
           const retry = await supabase.functions.invoke("process-document", { body: invokeBody });
-          if (retry.error) throw new Error(retry.error.message || "Erro no processamento");
+          if (retry.error) {
+            const retryMsg = await extractInvokeError(retry.error);
+            throw new Error(retryMsg);
+          }
           if (retry.data) {
             totalAlerts += retry.data.alerts_count || 0;
             maxRiskScore = Math.max(maxRiskScore, retry.data.risk_score || 0);
           }
         } else {
-          throw new Error(errMsg || "Erro no processamento");
+          throw new Error(errMsg);
         }
       } else if (fnData) {
         totalAlerts += fnData.alerts_count || 0;
