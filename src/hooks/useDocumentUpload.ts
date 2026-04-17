@@ -324,13 +324,13 @@ export function useDocumentUpload() {
       });
 
       if (fnErr) {
-        const errMsg = fnErr.message || "";
-        if (errMsg.includes("429") || errMsg.includes("Rate limit")) {
+        const errMsg = await extractInvokeError(fnErr);
+        if (errMsg.includes("429") || errMsg.toLowerCase().includes("rate limit")) {
           toast({ title: "Limite de requisições", description: "Aguarde alguns minutos e tente novamente.", variant: "destructive" });
-        } else if (errMsg.includes("402") || errMsg.includes("Payment")) {
+        } else if (errMsg.includes("402") || errMsg.toLowerCase().includes("payment")) {
           toast({ title: "Créditos insuficientes", description: "Adicione créditos ao workspace para continuar.", variant: "destructive" });
         }
-        throw new Error(errMsg || "Erro no processamento");
+        throw new Error(errMsg);
       }
 
       setStep("analyzing");
