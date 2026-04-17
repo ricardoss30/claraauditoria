@@ -257,7 +257,7 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
   }
 
   if (!text) {
-    throw new Error("Não foi possível extrair texto do PDF. O arquivo pode estar escaneado ou protegido. Tente colar o texto manualmente na aba 'Colar Texto'.");
+    throw new Error("Não foi possível extrair texto do PDF. Se for um documento escaneado grande (>8MB), divida-o em partes menores (até 5MB cada) usando ferramentas como iLovePDF e envie novamente. Alternativa: cole o texto manualmente na aba 'Colar Texto'.");
   }
 
   console.log(`PDF text extracted: ${text.length} characters from ${fileUrl}`);
