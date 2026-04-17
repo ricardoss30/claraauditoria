@@ -182,62 +182,82 @@ async function extractPdfText(supabase: any, documentId: string, lovableApiKey: 
   }
 
   if (!text) {
-    // OCR fallback for small files
-    console.log("Attempting OCR via Gemini vision model...");
-    try {
-      const uint8 = new Uint8Array(arrayBuffer);
-      let binary = "";
-      const SLICE = 32768;
-      for (let i = 0; i < uint8.length; i += SLICE) {
-        const slice = uint8.subarray(i, Math.min(i + SLICE, uint8.length));
-        binary += String.fromCharCode(...slice);
-      }
-      const base64 = btoa(binary);
+    // Skip OCR for chunks > 8MB to avoid edge function CPU timeouts
+    const OCR_MAX_SIZE = 8 * 1024 * 1024;
+    if (fileSize > OCR_MAX_SIZE) {
+      console.warn(`Skipping OCR: file size ${(fileSize / 1024 / 1024).toFixed(1)}MB exceeds OCR limit of 8MB. Split the PDF into smaller parts before upload.`);
+    } else {
+      // OCR fallback for small files
+      console.log("Attempting OCR via Gemini vision model...");
+      try {
+        const uint8 = new Uint8Array(arrayBuffer);
+        let binary = "";
+        const SLICE = 32768;
+        for (let i = 0; i < uint8.length; i += SLICE) {
+          const slice = uint8.subarray(i, Math.min(i + SLICE, uint8.length));
+          binary += String.fromCharCode(...slice);
+        }
+        const base64 = btoa(binary);
 
-      const ocrResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${lovableApiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          temperature: 0,
-          messages: [
-            {
-              role: "user",
-              content: [
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 90_000);
+
+        let ocrResponse: Response;
+        try {
+          ocrResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+            method: "POST",
+            signal: controller.signal,
+            headers: {
+              Authorization: `Bearer ${lovableApiKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "google/gemini-3-flash-preview",
+              temperature: 0,
+              max_tokens: 4096,
+              messages: [
                 {
-                  type: "text",
-                  text: "Extraia todo o texto legível deste documento PDF. Retorne APENAS o texto extraído, sem comentários, explicações ou formatação adicional. Preserve a estrutura original (parágrafos, listas, tabelas) o máximo possível.",
-                },
-                {
-                  type: "image_url",
-                  image_url: { url: `data:application/pdf;base64,${base64}` },
+                  role: "user",
+                  content: [
+                    {
+                      type: "text",
+                      text: "Extraia todo o texto legível deste documento PDF. Retorne APENAS o texto extraído, sem comentários, explicações ou formatação adicional. Preserve a estrutura original (parágrafos, listas, tabelas) o máximo possível.",
+                    },
+                    {
+                      type: "image_url",
+                      image_url: { url: `data:application/pdf;base64,${base64}` },
+                    },
+                  ],
                 },
               ],
-            },
-          ],
-        }),
-      });
-
-      if (ocrResponse.ok) {
-        const ocrData = await ocrResponse.json();
-        const ocrText = ocrData.choices?.[0]?.message?.content?.trim();
-        if (ocrText && ocrText.length > 50) {
-          text = ocrText;
-          console.log(`OCR text extracted: ${text.length} characters`);
+            }),
+          });
+        } finally {
+          clearTimeout(timeoutId);
         }
-      } else {
-        console.error("OCR API error:", ocrResponse.status, await ocrResponse.text());
+
+        if (ocrResponse.ok) {
+          const ocrData = await ocrResponse.json();
+          const ocrText = ocrData.choices?.[0]?.message?.content?.trim();
+          if (ocrText && ocrText.length > 50) {
+            text = ocrText;
+            console.log(`OCR text extracted: ${text.length} characters`);
+          }
+        } else {
+          console.error("OCR API error:", ocrResponse.status, await ocrResponse.text());
+        }
+      } catch (ocrErr: any) {
+        if (ocrErr.name === "AbortError") {
+          console.error("OCR timeout: Gemini call exceeded 90s. PDF chunk too complex.");
+        } else {
+          console.error("OCR extraction error:", ocrErr.message);
+        }
       }
-    } catch (ocrErr: any) {
-      console.error("OCR extraction error:", ocrErr.message);
     }
   }
 
   if (!text) {
-    throw new Error("Não foi possível extrair texto do PDF. O arquivo pode estar escaneado ou protegido. Tente colar o texto manualmente na aba 'Colar Texto'.");
+    throw new Error("Não foi possível extrair texto do PDF. Se for um documento escaneado grande (>8MB), divida-o em partes menores (até 5MB cada) usando ferramentas como iLovePDF e envie novamente. Alternativa: cole o texto manualmente na aba 'Colar Texto'.");
   }
 
   console.log(`PDF text extracted: ${text.length} characters from ${fileUrl}`);
