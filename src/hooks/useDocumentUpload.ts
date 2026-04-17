@@ -8,6 +8,38 @@ import * as tus from "tus-js-client";
 
 export type UploadStep = "idle" | "extracting_local" | "splitting" | "uploading" | "extracting" | "analyzing" | "done" | "error";
 
+/**
+ * Extract a useful error message from a supabase.functions.invoke() error.
+ * The default `error.message` is generic ("Edge Function returned a non-2xx status code");
+ * the real backend message is in `error.context` (a Response object).
+ */
+async function extractInvokeError(fnErr: any, fallback = "Erro no processamento"): Promise<string> {
+  if (!fnErr) return fallback;
+  try {
+    const ctx = fnErr.context;
+    if (ctx && typeof ctx.json === "function") {
+      const body = await ctx.clone().json().catch(async () => {
+        const txt = await ctx.clone().text().catch(() => "");
+        return txt ? { error: txt } : null;
+      });
+      if (body?.error) return typeof body.error === "string" ? body.error : JSON.stringify(body.error);
+    } else if (ctx && typeof ctx.text === "function") {
+      const txt = await ctx.clone().text().catch(() => "");
+      if (txt) {
+        try {
+          const parsed = JSON.parse(txt);
+          if (parsed?.error) return typeof parsed.error === "string" ? parsed.error : JSON.stringify(parsed.error);
+        } catch {
+          return txt;
+        }
+      }
+    }
+  } catch {
+    /* fall through */
+  }
+  return fnErr.message || fallback;
+}
+
 export interface MultiPartProgress {
   currentPart: number;
   totalParts: number;
