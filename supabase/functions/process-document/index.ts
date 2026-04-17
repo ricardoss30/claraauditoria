@@ -400,8 +400,9 @@ Deno.serve(async (req) => {
     }
 
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
-    const { document_id, content: rawContent, audit_criteria, force_reextract, file_path, analysis_rule_ids, risk_rule_ids } = await req.json();
+    const { document_id, content: rawContent, audit_criteria, force_reextract, file_path, analysis_rule_ids, risk_rule_ids, append_mode } = await req.json();
     if (!document_id) throw new Error("document_id is required");
+    const isAppend = append_mode === true;
 
     // Check cache first for deterministic results (skip if force reextract)
     if (!force_reextract) {
@@ -440,9 +441,23 @@ Deno.serve(async (req) => {
       console.log(`Extracting text from storage PDF...${file_path ? ` (override: ${file_path})` : ""}`);
       content = await extractPdfText(supabase, document_id, lovableApiKey, file_path);
 
-      await supabase.from("procurement_documents")
-        .update({ raw_content: content })
-        .eq("id", document_id);
+      if (isAppend) {
+        // Append this part's text to whatever raw_content is already stored
+        const { data: prevDoc } = await supabase
+          .from("procurement_documents")
+          .select("raw_content")
+          .eq("id", document_id)
+          .single();
+        const prev = (prevDoc?.raw_content || "").trim();
+        const merged = prev && !prev.startsWith("[PDF grande em processamento")
+          ? `${prev}\n\n--- Parte adicional ---\n\n${content}`
+          : content;
+        await supabase.from("procurement_documents").update({ raw_content: merged }).eq("id", document_id);
+      } else {
+        await supabase.from("procurement_documents")
+          .update({ raw_content: content })
+          .eq("id", document_id);
+      }
     }
 
     if (!content.trim()) throw new Error("Nenhum conteúdo disponível para análise");
@@ -757,20 +772,44 @@ ${rulesContext || "Nenhuma regra ativa cadastrada."}${knowledgeBaseContext}${aud
     console.log(`Combined alerts: ${localAlerts.length} local + ${(aiAlerts || []).length} AI = ${combinedAlerts.length} total. Risk score: AI=${aiRiskScore}, local=${localRiskScore}, final=${finalRiskScore}`);
 
     // Update document with extracted data
-    await supabase.from("procurement_documents").update({
-      title: extracted_data.title || undefined,
-      agency: extracted_data.agency || undefined,
-      modality: extracted_data.modality || undefined,
-      estimated_value: extracted_data.estimated_value || undefined,
-      deadline_at: extracted_data.deadline || undefined,
-      description: extracted_data.description || undefined,
-      extracted_data: { ...extracted_data, ...ragMetadata, ...(audit_criteria ? { audit_criteria } : {}) },
-      risk_score: finalRiskScore,
-      status: "processed",
-    }).eq("id", document_id);
+    // For append mode, only fill fields that are still empty and keep the highest risk_score.
+    if (isAppend) {
+      const { data: existing } = await supabase
+        .from("procurement_documents")
+        .select("title, agency, modality, estimated_value, deadline_at, description, risk_score, extracted_data")
+        .eq("id", document_id)
+        .single();
+      const existingScore = existing?.risk_score || 0;
+      const mergedScore = Math.max(existingScore, finalRiskScore);
+      await supabase.from("procurement_documents").update({
+        title: existing?.title || extracted_data.title || undefined,
+        agency: existing?.agency || extracted_data.agency || undefined,
+        modality: existing?.modality || extracted_data.modality || undefined,
+        estimated_value: existing?.estimated_value || extracted_data.estimated_value || undefined,
+        deadline_at: existing?.deadline_at || extracted_data.deadline || undefined,
+        description: existing?.description || extracted_data.description || undefined,
+        extracted_data: { ...(existing?.extracted_data as object || {}), ...extracted_data, ...ragMetadata, ...(audit_criteria ? { audit_criteria } : {}) },
+        risk_score: mergedScore,
+        status: "processed",
+      }).eq("id", document_id);
+    } else {
+      await supabase.from("procurement_documents").update({
+        title: extracted_data.title || undefined,
+        agency: extracted_data.agency || undefined,
+        modality: extracted_data.modality || undefined,
+        estimated_value: extracted_data.estimated_value || undefined,
+        deadline_at: extracted_data.deadline || undefined,
+        description: extracted_data.description || undefined,
+        extracted_data: { ...extracted_data, ...ragMetadata, ...(audit_criteria ? { audit_criteria } : {}) },
+        risk_score: finalRiskScore,
+        status: "processed",
+      }).eq("id", document_id);
+    }
 
-    // Delete existing alerts for this document before inserting new ones
-    await supabase.from("risk_alerts").delete().eq("document_id", document_id);
+    // For multipart parts after the first, keep alerts from previous parts; otherwise reset.
+    if (!isAppend) {
+      await supabase.from("risk_alerts").delete().eq("document_id", document_id);
+    }
 
     // Create alerts
     if (combinedAlerts.length > 0) {
