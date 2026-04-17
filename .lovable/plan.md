@@ -1,49 +1,82 @@
 
-
 ## Diagnóstico
+Do I know what the issue is? Sim.
 
-A imagem mostra o erro na **Etapa 4 (Processamento)** do wizard. Os logs da edge function `process-document` revelam o problema real:
+O erro real não é mais o crash genérico da Edge Function. Agora há 3 problemas encadeados:
 
-```
-File size: 15.0MB, threshold: 20MB, isChunk: true
-Attempting OCR via Gemini vision model...
-CPU Time exceeded   ← ERRO
-shutdown
-```
+1. O backend já retorna uma mensagem útil, mas o frontend continua mostrando só `Edge Function returned a non-2xx status code`.
+2. O splitter ainda divide por página fixa (`5 páginas`), e isso está gerando chunks de `10.2MB`, acima do novo teto de OCR (`8MB`).
+3. O fluxo multipart está incompleto: `append_mode` é enviado pelo frontend, mas não é tratado na função, então mesmo quando passar a funcionar ele tende a sobrescrever dados/alertas da parte anterior.
 
-### Causa raiz
-O PDF é escaneado (não tem texto extraível), então o sistema cai no fallback de OCR via Gemini Vision. Enviar um chunk de **10–15MB** inteiro para o Gemini Vision em uma única chamada **estoura o limite de CPU** das edge functions Supabase (~150s wall / CPU bound). A função morre antes de responder, gerando o erro genérico "non-2xx status code".
+Evidência confirmada nos logs da função:
+- `Skipping OCR: file size 10.2MB exceeds OCR limit of 8MB`
+- depois disso a função retorna erro descritivo de extração
+- o frontend perde esse detalhe e exibe só o erro genérico
 
-Outros chunks menores no mesmo lote completaram com sucesso (5–12k caracteres extraídos), confirmando que o problema é específico de chunks grandes/pesados em OCR.
+## Plano de correção
 
-## Correção proposta
+### 1. Corrigir a leitura de erro no frontend
+**Arquivo:** `src/hooks/useDocumentUpload.ts`
 
-Reduzir agressivamente o trabalho que o OCR faz por chamada na edge function `process-document`:
+- Criar um helper para tratar erros de `supabase.functions.invoke()`
+- Quando o erro for HTTP, ler `await error.context.json()` e usar `body.error`
+- Aplicar isso em:
+  - upload normal
+  - upload multipart
+  - retry 429
+  - reprocessamento
 
-### 1. Limite de tamanho para OCR
-Em `process-document/index.ts`, antes de chamar o Gemini Vision, verificar o tamanho do PDF:
-- **Se chunk > 8MB**: pular OCR neste chunk e registrar aviso no `processing_log` ("Chunk muito grande para OCR — divida o PDF em partes menores no upload").
-- Manter o limite de 20MB apenas para PDFs com texto nativo.
+Resultado: a UI passa a mostrar a causa real em vez de `non-2xx`.
 
-### 2. Timeout explícito na chamada Gemini
-Envolver o `fetch` para `ai.gateway.lovable.dev` em um `AbortController` com timeout de **90 segundos**. Se estourar, retornar erro tratável ao invés de matar a função inteira por CPU.
+### 2. Trocar o splitter por um modo baseado em tamanho
+**Arquivo:** `src/lib/pdfSplitter.ts`
 
-### 3. Reduzir `max_tokens` do OCR
-Atualmente provavelmente alto. Limitar a `4096` por chunk reduz tempo de geração e custo de CPU.
+- Remover a lógica fixa de “5 páginas por parte”
+- Montar os chunks página a página, salvando partes com alvo de ~`5MB`
+- Garantir folga abaixo do limite de OCR de `8MB`
+- Se uma única página já passar do limite sozinha, retornar erro específico orientando dividir/comprimir manualmente
 
-### 4. Mensagem de erro útil no frontend
-Em `StepProcessing.tsx`, quando a mensagem de erro contém "CPU Time" ou "non-2xx", exibir orientação:
-> "O documento parece ser escaneado e muito grande. Tente dividir o PDF em arquivos menores (até 5MB cada) antes de enviar."
+Resultado: PDFs escaneados deixam de gerar chunks grandes demais para OCR.
 
-### Arquivos a alterar
+### 3. Acionar multipart antes
+**Arquivo:** `src/hooks/useDocumentUpload.ts`
 
-| Arquivo | Mudança |
-|---|---|
-| `supabase/functions/process-document/index.ts` | Skip OCR para chunks > 8MB; AbortController 90s no fetch Gemini; max_tokens reduzido |
-| `src/components/wizard/StepProcessing.tsx` | Mensagem de erro mais clara para falhas de OCR |
+- Hoje o multipart só entra quando o arquivo original passa de `20MB`
+- Ajustar a regra: se a extração local falhar/for insuficiente e o PDF estiver acima do limite seguro para OCR, usar multipart
+- Manter os PDFs pequenos no fluxo simples
 
-Após a correção, redeploy automático da função `process-document`.
+Resultado: arquivos escaneados entre `8MB` e `20MB` também entram no caminho seguro.
 
-### Recomendação ao usuário (workaround imediato)
-Enquanto a correção não é aplicada — ou se o PDF continuar muito pesado — divida o PDF original em arquivos de no máximo **5MB** usando ferramentas como iLovePDF/SmallPDF e envie-os separadamente.
+### 4. Consertar o fluxo multipart no backend
+**Arquivo:** `supabase/functions/process-document/index.ts`
 
+- Ler e tratar `append_mode`
+- Em multipart:
+  - concatenar `raw_content`
+  - preservar/acumular alertas das partes anteriores
+  - manter `risk_score` como o maior valor entre as partes
+- Opcionalmente retornar um código estável de erro para “chunk grande demais para OCR”
+
+Resultado: o processamento em partes fica correto de ponta a ponta, não só “sem erro”.
+
+### 5. Melhorar a mensagem da etapa 4
+**Arquivo:** `src/components/wizard/StepProcessing.tsx`
+**Opcional para consistência:** `src/components/DocumentUploadDialog.tsx`
+
+- Atualizar a detecção de erro para reconhecer também a mensagem descritiva nova
+- Exibir orientação clara quando o problema for tamanho/extração de PDF escaneado
+
+Resultado: o usuário recebe instrução útil mesmo sem olhar logs.
+
+## Arquivos que precisam mudar
+- `src/hooks/useDocumentUpload.ts`
+- `src/lib/pdfSplitter.ts`
+- `supabase/functions/process-document/index.ts`
+- `src/components/wizard/StepProcessing.tsx`
+- `src/components/DocumentUploadDialog.tsx` (se quiser manter o mesmo comportamento no modal)
+
+## Resultado esperado
+- some o erro genérico `non-2xx`
+- os chunks passam a respeitar o limite prático do OCR
+- PDFs escaneados grandes conseguem processar
+- multipart deixa de sobrescrever o que já foi analisado nas partes anteriores
