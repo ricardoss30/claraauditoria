@@ -236,6 +236,8 @@ export function useDocumentUpload() {
           rawContent = await file.text();
         } else if (file.type === "application/pdf") {
           setStep("extracting_local");
+          // Trigger multipart for any scanned PDF likely to exceed the OCR limit (8MB).
+          const NEEDS_SPLIT_BYTES = 8 * 1024 * 1024;
           try {
             const pdfText = await extractTextFromPdf(file, (progress) => {
               setExtractionProgress(progress);
@@ -245,7 +247,7 @@ export function useDocumentUpload() {
               console.log(`Client-side PDF extraction: ${pdfText.length} chars from ${file.name}`);
             } else {
               console.log(`Client-side extraction yielded only ${pdfText.length} chars`);
-              if (file.size > 20 * 1024 * 1024) {
+              if (file.size > NEEDS_SPLIT_BYTES) {
                 needsMultiPart = true;
               } else {
                 rawContent = `[Arquivo PDF: ${file.name}]`;
@@ -253,7 +255,7 @@ export function useDocumentUpload() {
             }
           } catch (pdfErr: any) {
             console.warn("Client-side PDF extraction failed:", pdfErr.message);
-            if (file.size > 20 * 1024 * 1024) {
+            if (file.size > NEEDS_SPLIT_BYTES) {
               needsMultiPart = true;
             } else {
               rawContent = `[Arquivo PDF: ${file.name}]`;
@@ -265,10 +267,13 @@ export function useDocumentUpload() {
         }
 
         // ── Step 2: Upload the file to Storage ──
-        setStep("uploading");
-        setUploadProgress(0);
-        fileUrl = await uploadFile(file);
-        setUploadProgress(null);
+        // Skip the full-file upload for multipart — each part will be uploaded individually.
+        if (!needsMultiPart) {
+          setStep("uploading");
+          setUploadProgress(0);
+          fileUrl = await uploadFile(file);
+          setUploadProgress(null);
+        }
       }
 
       if (!needsMultiPart && !rawContent.trim()) throw new Error("Nenhum conteúdo fornecido");
