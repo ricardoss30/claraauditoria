@@ -14,7 +14,7 @@ export interface MultiPartProgress {
 }
 
 const SUPABASE_PROJECT_REF = "ktqrkijazzpafmfbkohe";
-const MAX_SIZE = 2000 * 1024 * 1024; // 2GB
+const MAX_SIZE = 5 * 1024 * 1024 * 1024; // 5GB (alinhado ao limite global do Supabase Storage)
 const TUS_THRESHOLD = 50 * 1024 * 1024; // 50MB
 
 async function extractInvokeError(fnErr: any, fallback = "Erro no processamento"): Promise<string> {
