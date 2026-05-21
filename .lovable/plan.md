@@ -1,29 +1,39 @@
+# Ajuste: Signed URL "permanente" para documentos
+
 ## Contexto
-Você aumentou o limite global do Supabase Storage para 5 GB. Com isso o erro `413 Maximum size exceeded` no TUS deve sumir para a maioria dos arquivos. Resta blindar o frontend para casos residuais e alinhar os limites exibidos ao usuário.
+Hoje em `supabase/functions/n8n-process-document/index.ts` geramos uma URL assinada válida por **1 hora** (`createSignedUrl(sourcePath, 60 * 60)`). O n8n precisa baixar o arquivo, e queremos que a URL nunca expire na prática.
 
-## Alterações propostas
+## Observação importante
+O Supabase Storage **não suporta** URLs assinadas com expiração infinita — todo signed URL exige um TTL em segundos. Existem duas formas de obter o efeito de "nunca expirar":
 
-### 1. `src/hooks/useDocumentUpload.ts`
-- Aumentar `MAX_SIZE` de 2 GB → 5 GB (alinhar ao novo limite global).
-- Tratar erro `413` / "Maximum size exceeded" também dentro do `uploadWithTus` (hoje só é tratado no upload simples). Mensagem PT-BR clara: "O arquivo excede o limite global de upload do Supabase Storage (5 GB). Reduza o arquivo ou aumente o limite no dashboard."
-- Mensagem específica quando o erro vier do TUS com `response code: 413`.
+1. **Signed URL com TTL muito longo** (ex.: ~100 anos). Simples, mantém o bucket privado, não exige mudanças no n8n.
+2. **Tornar o bucket `documents` público** e usar `getPublicUrl`. URL realmente permanente, porém qualquer pessoa com o caminho pode baixar o arquivo.
 
-### 2. `src/components/DocumentUploadDialog.tsx`
-- Atualizar o hint de tamanho: "PDF ou texto (até 5 GB)".
+Recomendo a opção **1** por segurança (bucket continua privado, RLS preservado).
 
-### 3. `src/components/wizard/StepDocumentContent.tsx` (se exibir limite)
-- Conferir e atualizar qualquer texto que mencione 2 GB para 5 GB.
+## Mudança
+Em `supabase/functions/n8n-process-document/index.ts`, substituir:
 
-## O que NÃO muda
-- Fluxo `n8n-process-document` continua igual.
-- TUS resumable continua sendo usado para arquivos > 50 MB.
-- Nenhuma mudança de backend / edge function / banco.
+```ts
+const EXPIRES_IN = 60 * 60; // 1 hora
+const { data: signed } = await supabase.storage
+  .from("documents")
+  .createSignedUrl(sourcePath, EXPIRES_IN);
+```
 
-## Resultado esperado
-- Uploads de até 5 GB passam sem `413`.
-- Se ainda assim estourar (arquivo > 5 GB ou config divergente), o usuário vê uma mensagem clara em vez do erro cru do `tus-js-client`.
+por:
 
-## Arquivos afetados
-- `src/hooks/useDocumentUpload.ts`
-- `src/components/DocumentUploadDialog.tsx`
-- `src/components/wizard/StepDocumentContent.tsx` (verificação)
+```ts
+// ~100 anos — efetivamente "nunca expira"
+const EXPIRES_IN = 60 * 60 * 24 * 365 * 100;
+const { data: signed } = await supabase.storage
+  .from("documents")
+  .createSignedUrl(sourcePath, EXPIRES_IN);
+```
+
+## Escopo
+- 1 arquivo alterado: `supabase/functions/n8n-process-document/index.ts` (apenas a constante de expiração).
+- Sem mudanças no frontend, no banco ou no fluxo do n8n.
+- Aplica-se a todos os documentos (novos uploads, reprocessamento e wizard), pois todos passam por essa função.
+
+Se preferir a opção 2 (bucket público), me avise — exige migração SQL para marcar o bucket como público e ajustar a função para `getPublicUrl`.
