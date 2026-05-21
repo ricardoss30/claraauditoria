@@ -98,41 +98,50 @@ Deno.serve(async (req) => {
 
     await supabase.from("procurement_documents").update({ status: "processing" }).eq("id", document_id);
 
-    // Build multipart payload
-    const form = new FormData();
-    form.append("document_id", document_id);
-    form.append("audit_criteria", audit_criteria || "");
-    form.append("mode", mode || "new");
-    if (doc.title) form.append("title", doc.title);
-    if (doc.agency) form.append("agency", doc.agency);
-    if (doc.modality) form.append("modality", doc.modality);
-    if (doc.estimated_value != null) form.append("estimated_value", String(doc.estimated_value));
-    if (doc.published_at) form.append("published_at", String(doc.published_at));
-    if (doc.description) form.append("description", doc.description);
-    if (analysis_rule_ids?.length) form.append("analysis_rule_ids", JSON.stringify(analysis_rule_ids));
-    if (risk_rule_ids?.length) form.append("risk_rule_ids", JSON.stringify(risk_rule_ids));
-
+    // Build JSON payload (no binary file forwarded — avoids edge-runtime memory limit).
+    // For files: generate a signed URL and let n8n download directly from Storage.
     const sourcePath = file_path || doc.file_url;
+    let fileUrl: string | null = null;
+    let fileName: string | null = null;
+
     if (sourcePath) {
-      const { data: fileData, error: dlErr } = await supabase.storage
+      const { data: signed, error: signErr } = await supabase.storage
         .from("documents")
-        .download(sourcePath);
-      if (dlErr || !fileData) {
-        throw new Error(`Erro ao baixar arquivo do Storage: ${dlErr?.message || "arquivo não encontrado"}`);
+        .createSignedUrl(sourcePath, 60 * 60); // 1 hour
+      if (signErr || !signed?.signedUrl) {
+        throw new Error(`Erro ao gerar URL assinada: ${signErr?.message || "desconhecido"}`);
       }
-      const fileName = sourcePath.split("/").pop() || "document.bin";
-      form.append("file", fileData, fileName);
-    } else if (raw_text) {
-      const blob = new Blob([raw_text], { type: "text/plain" });
-      form.append("file", blob, "conteudo.txt");
-      form.append("raw_text", raw_text);
-    } else {
+      fileUrl = signed.signedUrl;
+      fileName = sourcePath.split("/").pop() || "document.bin";
+    } else if (!raw_text) {
       throw new Error("Nenhum arquivo nem texto fornecido para análise");
     }
 
+    const payload: Record<string, unknown> = {
+      document_id,
+      audit_criteria: audit_criteria || "",
+      mode: mode || "new",
+      title: doc.title || null,
+      agency: doc.agency || null,
+      modality: doc.modality || null,
+      estimated_value: doc.estimated_value ?? null,
+      published_at: doc.published_at || null,
+      description: doc.description || null,
+      analysis_rule_ids: analysis_rule_ids || [],
+      risk_rule_ids: risk_rule_ids || [],
+      file_url: fileUrl,
+      file_name: fileName,
+      file_path: sourcePath || null,
+      raw_text: raw_text || null,
+    };
+
     // POST to n8n
-    console.log(`Posting to n8n webhook for document ${document_id}...`);
-    const n8nResp = await fetch(N8N_WEBHOOK_URL, { method: "POST", body: form });
+    console.log(`Posting to n8n webhook for document ${document_id} (file_url=${fileUrl ? "yes" : "no"})...`);
+    const n8nResp = await fetch(N8N_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
     const respText = await n8nResp.text();
     if (!n8nResp.ok) {
