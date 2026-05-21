@@ -1,82 +1,82 @@
+## Substituir IA do Lovable pelo Webhook n8n no módulo Documentos
 
-## Diagnóstico
-Do I know what the issue is? Sim.
+### Objetivo
+Em todos os fluxos de processamento de Documentos (wizard "Novo Documento", diálogo de upload rápido e botão "Reprocessar"), parar de chamar `process-document` (Gemini via Lovable AI) e encaminhar arquivo + critérios para o webhook n8n. A resposta JSON do n8n alimenta o relatório existente.
 
-O erro real não é mais o crash genérico da Edge Function. Agora há 3 problemas encadeados:
+### Webhook
+- URL: `https://ricardoss30.app.n8n.cloud/webhook/ebc237a3-02cb-4987-bca6-0fd09ab8d983/claraauditoria`
+- Método: `POST`, `multipart/form-data`, público (sem auth header)
 
-1. O backend já retorna uma mensagem útil, mas o frontend continua mostrando só `Edge Function returned a non-2xx status code`.
-2. O splitter ainda divide por página fixa (`5 páginas`), e isso está gerando chunks de `10.2MB`, acima do novo teto de OCR (`8MB`).
-3. O fluxo multipart está incompleto: `append_mode` é enviado pelo frontend, mas não é tratado na função, então mesmo quando passar a funcionar ele tende a sobrescrever dados/alertas da parte anterior.
+### Contrato (frontend → n8n)
+Campos do `FormData`:
+- `file` (binário) — arquivo original anexado (PDF/DOCX/TXT). Em modo "colar texto", enviar um `text/plain` gerado a partir do conteúdo.
+- `document_id` (string UUID)
+- `audit_criteria` (string)
+- `title`, `agency`, `modality`, `estimated_value`, `published_at` (strings, opcionais — metadados do wizard)
+- `analysis_rule_ids`, `risk_rule_ids` (JSON stringificado, opcionais)
+- `mode` = `"new"` ou `"reprocess"`
 
-Evidência confirmada nos logs da função:
-- `Skipping OCR: file size 10.2MB exceeds OCR limit of 8MB`
-- depois disso a função retorna erro descritivo de extração
-- o frontend perde esse detalhe e exibe só o erro genérico
+### Contrato (n8n → frontend) — esperado
+```json
+{
+  "risk_score": 0-100,
+  "summary": "texto da análise",
+  "alerts": [
+    { "title": "...", "description": "...", "severity": "low|medium|high|critical" }
+  ],
+  "extracted_data": { ... }
+}
+```
 
-## Plano de correção
+### Arquitetura escolhida
+Criar uma **nova edge function** `n8n-process-document` que:
+1. Valida JWT do chamador (padrão das demais funções).
+2. Baixa o arquivo do Storage (`documents` bucket) usando `file_url` recebido do frontend, ou recebe `raw_text` quando for modo texto colado.
+3. Monta `FormData` e faz `POST` ao webhook n8n.
+4. Recebe o JSON, persiste no Supabase:
+   - `procurement_documents`: `status = 'processed'`, `risk_score`, `extracted_data` (merge), `raw_content` (se vier `summary`).
+   - `risk_alerts`: insere cada alerta retornado, vinculado ao `document_id` e `created_by`.
+5. Retorna `{ success, risk_score, alerts_count }` ao frontend (mesmo shape atual, para não quebrar `useDocumentUpload`).
 
-### 1. Corrigir a leitura de erro no frontend
-**Arquivo:** `src/hooks/useDocumentUpload.ts`
+**Por que edge function e não chamar direto do navegador:**
+- Evita expor o usuário a CORS do n8n.
+- Garante validação JWT e RLS (inserção de alertas precisa de service role).
+- Centraliza tratamento de erro e auditoria (IP via `x-forwarded-for`).
+- O upload pesado para o Storage continua direto do navegador (TUS) — a função só repassa o arquivo já no Storage.
 
-- Criar um helper para tratar erros de `supabase.functions.invoke()`
-- Quando o erro for HTTP, ler `await error.context.json()` e usar `body.error`
-- Aplicar isso em:
-  - upload normal
-  - upload multipart
-  - retry 429
-  - reprocessamento
+### Mudanças por arquivo
 
-Resultado: a UI passa a mostrar a causa real em vez de `non-2xx`.
+| Arquivo | Mudança |
+|---|---|
+| `supabase/functions/n8n-process-document/index.ts` | **Novo.** Lê `document_id` + `file_path` (ou `raw_text`), baixa do Storage, faz multipart POST ao webhook, grava resultado em `procurement_documents` e `risk_alerts`. |
+| `supabase/config.toml` | Registrar `n8n-process-document` com `verify_jwt = false` (validação manual em código, padrão do projeto). |
+| `src/hooks/useDocumentUpload.ts` | Substituir todas as chamadas `supabase.functions.invoke("process-document", …)` por `"n8n-process-document"`. Remover lógica de chunking/multipart (n8n faz o OCR sozinho — envia o arquivo inteiro). Manter upload via TUS para arquivos grandes. Em `reprocess`, enviar `file_path` existente. |
+| `src/components/wizard/StepProcessing.tsx` | Simplificar mensagens (sem "parte X/Y"). Remover dica de iLovePDF/OCR (não se aplica mais). |
+| `src/components/DocumentUploadDialog.tsx` | Remover `splitProgress` e `multiPartProgress` da UI (deixar apenas upload + processamento). |
 
-### 2. Trocar o splitter por um modo baseado em tamanho
-**Arquivo:** `src/lib/pdfSplitter.ts`
+### Fluxo final
+```
+Wizard/Dialog
+  → upload do arquivo ao Storage (direto do browser, TUS se >50MB)
+  → INSERT em procurement_documents (status=pending)
+  → invoke("n8n-process-document", { document_id, file_path, audit_criteria, metadata })
+      ↓
+Edge Function
+  → download do arquivo do Storage
+  → POST multipart ao webhook n8n
+  → parse da resposta JSON
+  → UPDATE procurement_documents (status=processed, risk_score, extracted_data)
+  → INSERT em risk_alerts
+  → retorna { success, risk_score, alerts_count }
+      ↓
+Frontend mostra "done" e navega para o relatório
+```
 
-- Remover a lógica fixa de “5 páginas por parte”
-- Montar os chunks página a página, salvando partes com alvo de ~`5MB`
-- Garantir folga abaixo do limite de OCR de `8MB`
-- Se uma única página já passar do limite sozinha, retornar erro específico orientando dividir/comprimir manualmente
+### Itens removidos
+- Chunking de PDF (`splitPdf`), extração local via `pdfExtractor`, fallback OCR Gemini, cache `text_analysis_cache`, RAG via `conhecimento_chunks` no fluxo de processamento. O n8n é responsável por todo o pré-processamento e análise.
+- Arquivos `src/lib/pdfSplitter.ts` e `src/lib/pdfExtractor.ts` **permanecem** (podem ser usados em outros lugares como Knowledge Base), mas deixam de ser chamados em `useDocumentUpload`.
 
-Resultado: PDFs escaneados deixam de gerar chunks grandes demais para OCR.
-
-### 3. Acionar multipart antes
-**Arquivo:** `src/hooks/useDocumentUpload.ts`
-
-- Hoje o multipart só entra quando o arquivo original passa de `20MB`
-- Ajustar a regra: se a extração local falhar/for insuficiente e o PDF estiver acima do limite seguro para OCR, usar multipart
-- Manter os PDFs pequenos no fluxo simples
-
-Resultado: arquivos escaneados entre `8MB` e `20MB` também entram no caminho seguro.
-
-### 4. Consertar o fluxo multipart no backend
-**Arquivo:** `supabase/functions/process-document/index.ts`
-
-- Ler e tratar `append_mode`
-- Em multipart:
-  - concatenar `raw_content`
-  - preservar/acumular alertas das partes anteriores
-  - manter `risk_score` como o maior valor entre as partes
-- Opcionalmente retornar um código estável de erro para “chunk grande demais para OCR”
-
-Resultado: o processamento em partes fica correto de ponta a ponta, não só “sem erro”.
-
-### 5. Melhorar a mensagem da etapa 4
-**Arquivo:** `src/components/wizard/StepProcessing.tsx`
-**Opcional para consistência:** `src/components/DocumentUploadDialog.tsx`
-
-- Atualizar a detecção de erro para reconhecer também a mensagem descritiva nova
-- Exibir orientação clara quando o problema for tamanho/extração de PDF escaneado
-
-Resultado: o usuário recebe instrução útil mesmo sem olhar logs.
-
-## Arquivos que precisam mudar
-- `src/hooks/useDocumentUpload.ts`
-- `src/lib/pdfSplitter.ts`
-- `supabase/functions/process-document/index.ts`
-- `src/components/wizard/StepProcessing.tsx`
-- `src/components/DocumentUploadDialog.tsx` (se quiser manter o mesmo comportamento no modal)
-
-## Resultado esperado
-- some o erro genérico `non-2xx`
-- os chunks passam a respeitar o limite prático do OCR
-- PDFs escaneados grandes conseguem processar
-- multipart deixa de sobrescrever o que já foi analisado nas partes anteriores
+### Considerações
+- **Timeout:** webhooks n8n podem demorar. A edge function fica aguardando a resposta síncrona. Se o n8n responder em >150s (limite da edge), precisaremos migrar para um modelo assíncrono (n8n callback → outra edge function). Para já, mantemos síncrono.
+- **Tamanho:** edge functions Supabase aceitam até ~256MB de body, mas o repasse ao n8n também precisa caber. Para arquivos >100MB, considerar enviar URL assinada em vez de binário (decisão futura).
+- **Função antiga `process-document`:** mantida no projeto, mas deixa de ser chamada. Não removo neste momento para permitir rollback rápido.
