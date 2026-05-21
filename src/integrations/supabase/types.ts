@@ -213,17 +213,17 @@ export type Database = {
       n8n_chat_histories_auditor: {
         Row: {
           id: number
-          message: Json
+          message: string
           session_id: string
         }
         Insert: {
           id?: number
-          message: Json
+          message: string
           session_id: string
         }
         Update: {
           id?: number
-          message?: Json
+          message?: string
           session_id?: string
         }
         Relationships: []
