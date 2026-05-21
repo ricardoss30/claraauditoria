@@ -149,7 +149,7 @@ export function useDocumentUpload() {
       const rawText = text || "";
 
       if (file) {
-        if (file.size > MAX_SIZE) throw new Error("O arquivo excede o tamanho máximo de 2GB");
+        if (file.size > MAX_SIZE) throw new Error("O arquivo excede o tamanho máximo de 5GB");
         setStep("uploading");
         setUploadProgress(0);
         fileUrl = await uploadFile(file);
