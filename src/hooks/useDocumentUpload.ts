@@ -67,7 +67,17 @@ async function uploadWithTus(
         cacheControl: "3600",
       },
       chunkSize: 6 * 1024 * 1024,
-      onError(err) { reject(new Error(`Upload resumable falhou: ${err.message}`)); },
+      onError(err) {
+        const msg = err.message || "";
+        if (msg.includes("413") || /maximum size exceeded/i.test(msg)) {
+          reject(new Error(
+            "O arquivo excede o limite global de upload do Supabase Storage (5 GB). " +
+            "Reduza o arquivo ou aumente o limite no dashboard (Storage → Settings → Global file size limit)."
+          ));
+        } else {
+          reject(new Error(`Upload resumable falhou: ${msg}`));
+        }
+      },
       onProgress(bytesUploaded, bytesTotal) {
         onProgress?.(Math.round((bytesUploaded / bytesTotal) * 100));
       },
