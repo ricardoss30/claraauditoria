@@ -1,0 +1,239 @@
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
+
+const N8N_WEBHOOK_URL =
+  "https://ricardoss30.app.n8n.cloud/webhook/ebc237a3-02cb-4987-bca6-0fd09ab8d983/claraauditoria";
+
+function severityToInt(sev: unknown): number {
+  if (typeof sev === "number" && isFinite(sev)) {
+    return Math.min(5, Math.max(1, Math.round(sev)));
+  }
+  if (typeof sev === "string") {
+    const s = sev.trim().toLowerCase();
+    const map: Record<string, number> = {
+      low: 1, baixa: 1, baixo: 1,
+      medium: 3, media: 3, "média": 3, medio: 3, "médio": 3,
+      high: 4, alta: 4, alto: 4,
+      critical: 5, critica: 5, "crítica": 5, critico: 5, "crítico": 5,
+    };
+    if (map[s]) return map[s];
+    const n = parseInt(s, 10);
+    if (!isNaN(n)) return Math.min(5, Math.max(1, n));
+  }
+  return 3;
+}
+
+function clampScore(s: unknown): number {
+  const n = typeof s === "number" ? s : parseFloat(String(s ?? 0));
+  if (!isFinite(n)) return 0;
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
+
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+  try {
+    // Auth
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const token = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const callerId = user.id;
+    const { data: callerRoles } = await supabase.from("user_roles").select("role").eq("user_id", callerId);
+    if (!callerRoles?.some((r: any) => ["admin", "gestor"].includes(r.role))) {
+      return new Response(JSON.stringify({ error: "Permission denied" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
+
+    const body = await req.json();
+    const {
+      document_id,
+      file_path,
+      raw_text,
+      audit_criteria,
+      analysis_rule_ids,
+      risk_rule_ids,
+      mode,
+    } = body || {};
+
+    if (!document_id) {
+      return new Response(JSON.stringify({ error: "document_id is required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Load document for metadata
+    const { data: doc, error: docErr } = await supabase
+      .from("procurement_documents")
+      .select("id, title, agency, modality, estimated_value, published_at, description, file_url")
+      .eq("id", document_id)
+      .single();
+
+    if (docErr || !doc) {
+      return new Response(JSON.stringify({ error: "Documento não encontrado" }), {
+        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    await supabase.from("procurement_documents").update({ status: "processing" }).eq("id", document_id);
+
+    // Build multipart payload
+    const form = new FormData();
+    form.append("document_id", document_id);
+    form.append("audit_criteria", audit_criteria || "");
+    form.append("mode", mode || "new");
+    if (doc.title) form.append("title", doc.title);
+    if (doc.agency) form.append("agency", doc.agency);
+    if (doc.modality) form.append("modality", doc.modality);
+    if (doc.estimated_value != null) form.append("estimated_value", String(doc.estimated_value));
+    if (doc.published_at) form.append("published_at", String(doc.published_at));
+    if (doc.description) form.append("description", doc.description);
+    if (analysis_rule_ids?.length) form.append("analysis_rule_ids", JSON.stringify(analysis_rule_ids));
+    if (risk_rule_ids?.length) form.append("risk_rule_ids", JSON.stringify(risk_rule_ids));
+
+    const sourcePath = file_path || doc.file_url;
+    if (sourcePath) {
+      const { data: fileData, error: dlErr } = await supabase.storage
+        .from("documents")
+        .download(sourcePath);
+      if (dlErr || !fileData) {
+        throw new Error(`Erro ao baixar arquivo do Storage: ${dlErr?.message || "arquivo não encontrado"}`);
+      }
+      const fileName = sourcePath.split("/").pop() || "document.bin";
+      form.append("file", fileData, fileName);
+    } else if (raw_text) {
+      const blob = new Blob([raw_text], { type: "text/plain" });
+      form.append("file", blob, "conteudo.txt");
+      form.append("raw_text", raw_text);
+    } else {
+      throw new Error("Nenhum arquivo nem texto fornecido para análise");
+    }
+
+    // POST to n8n
+    console.log(`Posting to n8n webhook for document ${document_id}...`);
+    const n8nResp = await fetch(N8N_WEBHOOK_URL, { method: "POST", body: form });
+
+    const respText = await n8nResp.text();
+    if (!n8nResp.ok) {
+      console.error(`n8n webhook error ${n8nResp.status}: ${respText.substring(0, 500)}`);
+      throw new Error(`Webhook n8n retornou erro ${n8nResp.status}: ${respText.substring(0, 300)}`);
+    }
+
+    let result: any = {};
+    try {
+      result = respText ? JSON.parse(respText) : {};
+    } catch {
+      console.warn("n8n response is not JSON, treating as summary text");
+      result = { summary: respText };
+    }
+
+    // Some n8n flows wrap output in an array
+    if (Array.isArray(result)) result = result[0] || {};
+    // Or under .data / .json
+    if (result?.data && typeof result.data === "object") result = { ...result, ...result.data };
+    if (result?.json && typeof result.json === "object") result = { ...result, ...result.json };
+
+    const riskScore = clampScore(result.risk_score ?? 0);
+    const summary: string | undefined = result.summary || result.analysis;
+    const extractedData = (typeof result.extracted_data === "object" && result.extracted_data) || {};
+    const alerts: any[] = Array.isArray(result.alerts) ? result.alerts : [];
+
+    // Persist document
+    const mergedExtracted: any = {
+      ...extractedData,
+      ...(audit_criteria ? { audit_criteria } : {}),
+      ...(analysis_rule_ids?.length ? { analysis_rule_ids } : {}),
+      ...(risk_rule_ids?.length ? { risk_rule_ids } : {}),
+      n8n_processed_at: new Date().toISOString(),
+    };
+
+    const updatePayload: Record<string, any> = {
+      status: "processed",
+      risk_score: riskScore,
+      extracted_data: mergedExtracted,
+    };
+    if (summary && typeof summary === "string") updatePayload.raw_content = summary;
+    if (extractedData.title && !doc.title) updatePayload.title = extractedData.title;
+    if (extractedData.agency && !doc.agency) updatePayload.agency = extractedData.agency;
+    if (extractedData.modality && !doc.modality) updatePayload.modality = extractedData.modality;
+    if (extractedData.estimated_value && !doc.estimated_value) updatePayload.estimated_value = extractedData.estimated_value;
+    if (extractedData.description && !doc.description) updatePayload.description = extractedData.description;
+
+    await supabase.from("procurement_documents").update(updatePayload).eq("id", document_id);
+
+    // Replace alerts
+    await supabase.from("risk_alerts").delete().eq("document_id", document_id);
+
+    let insertedCount = 0;
+    if (alerts.length > 0) {
+      const rows = alerts.map((a) => ({
+        document_id,
+        alert_type: a.alert_type || a.type || "irregularidade",
+        title: a.title || "Alerta",
+        description: a.description || null,
+        severity: severityToInt(a.severity),
+        evidence: a.evidence || null,
+        criteria: a.criteria || null,
+        review_notes: a.review_notes || a.recommendation || null,
+        status: "pending",
+      }));
+      const { error: insErr, count } = await supabase
+        .from("risk_alerts")
+        .insert(rows, { count: "exact" });
+      if (insErr) console.error("Failed to insert alerts:", insErr);
+      else insertedCount = count || rows.length;
+    }
+
+    // Audit log
+    await supabase.from("audit_logs").insert({
+      action: mode === "reprocess" ? "reprocess" : "upload",
+      resource_type: "document",
+      resource_id: document_id,
+      user_id: callerId,
+      ip_address: clientIp,
+      details: { via: "n8n", risk_score: riskScore, alerts_count: insertedCount },
+    });
+
+    return new Response(
+      JSON.stringify({ success: true, risk_score: riskScore, alerts_count: insertedCount }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  } catch (e) {
+    console.error("n8n-process-document error:", e);
+    try {
+      const { document_id } = await req.clone().json().catch(() => ({}));
+      if (document_id) {
+        await supabase.from("procurement_documents").update({
+          status: "error",
+          extracted_data: { error: e instanceof Error ? e.message : "Erro desconhecido" },
+        }).eq("id", document_id);
+      }
+    } catch { /* ignore */ }
+
+    return new Response(
+      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+});
