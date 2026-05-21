@@ -65,6 +65,52 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
     }
   }, [data, onChange]);
 
+  const extractMetadataViaN8n = useCallback(async (selectedFile: File) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      toast.error("Sessão expirada. Faça login novamente.");
+      return;
+    }
+    const safeName = selectedFile.name.replace(/[^\w.\-]/g, "_");
+    const path = `_tmp/${user.id}/${crypto.randomUUID()}-${safeName}`;
+
+    const { error: upErr } = await supabase.storage
+      .from("documents")
+      .upload(path, selectedFile, { contentType: selectedFile.type, upsert: false });
+    if (upErr) throw upErr;
+
+    try {
+      const { data: signed, error: signErr } = await supabase.storage
+        .from("documents")
+        .createSignedUrl(path, 3600);
+      if (signErr || !signed?.signedUrl) throw signErr ?? new Error("Falha ao gerar URL");
+
+      const { data: result, error } = await supabase.functions.invoke("extract-metadata-n8n", {
+        body: {
+          file_url: signed.signedUrl,
+          file_name: selectedFile.name,
+          mime_type: selectedFile.type || "application/pdf",
+        },
+      });
+      if (error) throw error;
+
+      if (result) {
+        onChange({
+          title: result.title || data.title,
+          agency: result.agency || data.agency,
+          modality: result.modality || data.modality,
+          estimated_value: result.estimated_value || data.estimated_value,
+          published_at: result.published_at || data.published_at,
+          description: result.description || data.description,
+        });
+        setExtractionDone(true);
+        toast.success("Metadados extraídos via n8n!");
+      }
+    } finally {
+      await supabase.storage.from("documents").remove([path]).catch(() => {});
+    }
+  }, [data, onChange]);
+
   const handleFileSelect = useCallback(async (selectedFile: File) => {
     onFileChange(selectedFile);
     if (selectedFile.type === "application/pdf") {
@@ -75,15 +121,21 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
           onTextChange(extractedText);
           await extractMetadata(extractedText);
         } else {
-          toast.info("PDF com pouco texto extraível. Preencha os campos manualmente.");
-          setIsExtracting(false);
+          toast.info("PDF escaneado detectado. Enviando para extração via n8n...");
+          try {
+            await extractMetadataViaN8n(selectedFile);
+          } catch (e) {
+            console.error("Erro n8n:", e);
+            toast.error("Falha na extração via n8n. Preencha manualmente.");
+          }
         }
       } catch {
         toast.error("Erro ao ler o PDF.");
+      } finally {
         setIsExtracting(false);
       }
     }
-  }, [onFileChange, onTextChange, extractMetadata]);
+  }, [onFileChange, onTextChange, extractMetadata, extractMetadataViaN8n]);
 
   const handleTextPaste = useCallback(async (pastedText: string) => {
     onTextChange(pastedText);

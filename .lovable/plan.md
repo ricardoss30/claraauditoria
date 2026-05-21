@@ -1,39 +1,66 @@
-# Ajuste: Signed URL "permanente" para documentos
+## Objetivo
 
-## Contexto
-Hoje em `supabase/functions/n8n-process-document/index.ts` geramos uma URL assinada válida por **1 hora** (`createSignedUrl(sourcePath, 60 * 60)`). O n8n precisa baixar o arquivo, e queremos que a URL nunca expire na prática.
+Quando o PDF anexado na Etapa 1 ("Dados do documento") não tiver texto extraível (PDF escaneado), enviar o arquivo para o webhook n8n e usar a resposta para preencher os campos do formulário automaticamente.
 
-## Observação importante
-O Supabase Storage **não suporta** URLs assinadas com expiração infinita — todo signed URL exige um TTL em segundos. Existem duas formas de obter o efeito de "nunca expirar":
+## Webhook
 
-1. **Signed URL com TTL muito longo** (ex.: ~100 anos). Simples, mantém o bucket privado, não exige mudanças no n8n.
-2. **Tornar o bucket `documents` público** e usar `getPublicUrl`. URL realmente permanente, porém qualquer pessoa com o caminho pode baixar o arquivo.
+`https://ricardoss30.app.n8n.cloud/webhook/ebc237a3-02cb-4987-bca6-0fd09ab8d983/claraauditoriatitulo`
 
-Recomendo a opção **1** por segurança (bucket continua privado, RLS preservado).
+Formato escolhido: **Signed URL (JSON)** — upload temporário para o Storage e envio do link assinado no payload.
 
-## Mudança
-Em `supabase/functions/n8n-process-document/index.ts`, substituir:
+## Fluxo
 
-```ts
-const EXPIRES_IN = 60 * 60; // 1 hora
-const { data: signed } = await supabase.storage
-  .from("documents")
-  .createSignedUrl(sourcePath, EXPIRES_IN);
+```text
+PDF anexado → pdf.js extrai texto
+   │
+   ├─ texto > 100 chars → extract-metadata (Gemini, igual hoje)
+   │
+   └─ texto ≤ 100 chars (escaneado)
+        ↓
+      Upload temporário → bucket `documents/_tmp/{uuid}.pdf`
+        ↓
+      createSignedUrl (1h)
+        ↓
+      Edge function `extract-metadata-n8n`
+        ↓
+      POST webhook n8n { file_url, file_name, mime_type }
+        ↓
+      Resposta JSON do n8n → preenche título, órgão, modalidade, valor, etc.
+        ↓
+      Remove arquivo temporário do Storage
 ```
 
-por:
+## Mudanças
 
-```ts
-// ~100 anos — efetivamente "nunca expira"
-const EXPIRES_IN = 60 * 60 * 24 * 365 * 100;
-const { data: signed } = await supabase.storage
-  .from("documents")
-  .createSignedUrl(sourcePath, EXPIRES_IN);
-```
+### 1. Nova edge function `supabase/functions/extract-metadata-n8n/index.ts`
+- `verify_jwt = true` (default Lovable).
+- Recebe `{ file_url, file_name, mime_type }`.
+- Faz `POST` ao webhook n8n com timeout de 120s.
+- Retorna o JSON do n8n diretamente para o cliente (estrutura esperada: `{ title, agency, modality, estimated_value, description, published_at }`).
+- CORS habilitado.
 
-## Escopo
-- 1 arquivo alterado: `supabase/functions/n8n-process-document/index.ts` (apenas a constante de expiração).
-- Sem mudanças no frontend, no banco ou no fluxo do n8n.
-- Aplica-se a todos os documentos (novos uploads, reprocessamento e wizard), pois todos passam por essa função.
+### 2. `src/components/wizard/StepDocumentData.tsx`
+Substituir o ramo "pouco texto extraível" por:
+- Upload do PDF para `documents/_tmp/{uuid}-{nome}.pdf`.
+- `supabase.storage.from('documents').createSignedUrl(path, 3600)`.
+- `supabase.functions.invoke('extract-metadata-n8n', { body: { file_url, file_name, mime_type } })`.
+- Aplicar resposta nos campos via `onChange(...)`.
+- Remover arquivo temporário (`storage.remove([path])`) no `finally`.
+- Toasts: "PDF escaneado detectado. Enviando para extração..." / sucesso / erro com fallback para preenchimento manual.
 
-Se preferir a opção 2 (bucket público), me avise — exige migração SQL para marcar o bucket como público e ajustar a função para `getPublicUrl`.
+### 3. Sem mudanças em
+- `useDocumentUpload.ts` (upload final do documento permanece igual).
+- `extract-metadata` (continua para PDFs digitais).
+- Banco de dados, RLS, bucket.
+
+## Pré-requisito
+
+O workflow n8n `claraauditoriatitulo` precisa:
+- Aceitar `POST` JSON com `file_url`.
+- Baixar o PDF pela signed URL, fazer OCR e responder com JSON no formato acima.
+
+## Detalhes técnicos
+
+- Limite do upload temporário: usa o mesmo limite do bucket (5 GB já configurado).
+- Em caso de erro do webhook (timeout, 5xx, JSON inválido), exibir toast pedindo preenchimento manual — sem bloquear o usuário.
+- Pasta `_tmp/` no bucket fica coberta pelas mesmas policies de `documents` (usuário autenticado).
