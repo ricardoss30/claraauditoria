@@ -152,7 +152,7 @@ export function DocumentUploadDialog({ open, onOpenChange }: Props) {
                   ) : (
                     <>
                       <p className="text-sm font-medium">Arraste um arquivo ou clique para selecionar</p>
-                      <p className="text-xs text-muted-foreground mt-1">PDF ou texto (limite depende da config. do Supabase Storage)</p>
+                      <p className="text-xs text-muted-foreground mt-1">PDF ou texto (até 5 GB)</p>
                     </>
                   )}
                 </div>

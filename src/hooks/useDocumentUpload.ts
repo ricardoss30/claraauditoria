@@ -14,7 +14,7 @@ export interface MultiPartProgress {
 }
 
 const SUPABASE_PROJECT_REF = "ktqrkijazzpafmfbkohe";
-const MAX_SIZE = 2000 * 1024 * 1024; // 2GB
+const MAX_SIZE = 5 * 1024 * 1024 * 1024; // 5GB (alinhado ao limite global do Supabase Storage)
 const TUS_THRESHOLD = 50 * 1024 * 1024; // 50MB
 
 async function extractInvokeError(fnErr: any, fallback = "Erro no processamento"): Promise<string> {
@@ -67,7 +67,17 @@ async function uploadWithTus(
         cacheControl: "3600",
       },
       chunkSize: 6 * 1024 * 1024,
-      onError(err) { reject(new Error(`Upload resumable falhou: ${err.message}`)); },
+      onError(err) {
+        const msg = err.message || "";
+        if (msg.includes("413") || /maximum size exceeded/i.test(msg)) {
+          reject(new Error(
+            "O arquivo excede o limite global de upload do Supabase Storage (5 GB). " +
+            "Reduza o arquivo ou aumente o limite no dashboard (Storage → Settings → Global file size limit)."
+          ));
+        } else {
+          reject(new Error(`Upload resumable falhou: ${msg}`));
+        }
+      },
       onProgress(bytesUploaded, bytesTotal) {
         onProgress?.(Math.round((bytesUploaded / bytesTotal) * 100));
       },
@@ -139,7 +149,7 @@ export function useDocumentUpload() {
       const rawText = text || "";
 
       if (file) {
-        if (file.size > MAX_SIZE) throw new Error("O arquivo excede o tamanho máximo de 2GB");
+        if (file.size > MAX_SIZE) throw new Error("O arquivo excede o tamanho máximo de 5GB");
         setStep("uploading");
         setUploadProgress(0);
         fileUrl = await uploadFile(file);
