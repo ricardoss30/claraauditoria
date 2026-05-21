@@ -73,14 +73,20 @@ Deno.serve(async (req) => {
       );
     }
 
-    let parsed: any;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return new Response(
-        JSON.stringify({ error: "Resposta do n8n não é JSON válido", raw }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+    let parsed: any = {};
+    const trimmed = raw?.trim() ?? "";
+    if (trimmed.length > 0) {
+      // Try to extract JSON even if wrapped in markdown/code fences
+      const jsonMatch = trimmed.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+      const candidate = jsonMatch ? jsonMatch[0] : trimmed;
+      try {
+        parsed = JSON.parse(candidate);
+      } catch {
+        console.warn("n8n response not JSON, returning empty metadata. Raw:", raw);
+        parsed = {};
+      }
+    } else {
+      console.warn("n8n returned empty body");
     }
 
     // Normalize: n8n may return array, or nested object
