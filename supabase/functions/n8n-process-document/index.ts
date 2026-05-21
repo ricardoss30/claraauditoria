@@ -105,9 +105,11 @@ Deno.serve(async (req) => {
     let fileName: string | null = null;
 
     if (sourcePath) {
+      // ~100 anos — efetivamente "nunca expira"
+      const EXPIRES_IN = 60 * 60 * 24 * 365 * 100;
       const { data: signed, error: signErr } = await supabase.storage
         .from("documents")
-        .createSignedUrl(sourcePath, 60 * 60); // 1 hour
+        .createSignedUrl(sourcePath, EXPIRES_IN);
       if (signErr || !signed?.signedUrl) {
         throw new Error(`Erro ao gerar URL assinada: ${signErr?.message || "desconhecido"}`);
       }
