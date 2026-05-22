@@ -1,82 +1,57 @@
-## Reavaliação do workflow CLARA Fase 2 (versão 24dd9f87, 22/05 14:00)
+## Reavaliação do workflow CLARA Fase 2 (versão `d3192b29`, 22/05 14:54)
 
-### Fluxo atual (simplificado)
+Inspeção feita nó a nó via MCP do n8n. Os ajustes pendentes da rodada anterior foram aplicados.
+
+### Fluxo (linear, sem branches mortas)
 
 ```text
 Webhook (POST /claraauditoria)
-  └─ Filtro de Dados (mapeia file_url, file_name, title, audit_criteria→message_webhook)
-       └─ EXTRAÇÃO_PDF (Mistral OCR)
-            └─ Extract from File1 (JSON binário)
-                 └─ Code in JavaScript (concatena markdown das páginas)
-                      └─ finalText (monta prompt com OCR + critérios + regras + metadados)
-                           └─ Clara (Agent GPT-4o + RAG + memória)
-                                └─ Information Extractor (GPT structured output)
-                                     └─ Respond to Webhook
+  → Filtro de Dados  (mapeia body.fileUrl/fileName/title)
+    → EXTRAÇÃO_PDF   (Mistral OCR — agora via Credential)
+      → Extract from File1
+        → Code in JavaScript (concatena markdown das páginas)
+          → finalText  (injeta OCR + audit_criteria + rule_ids + metadados)
+            → Clara    (GPT-4o + RAG + memória)
+              → Information Extractor  (text = $json.output)
+                → Respond to Webhook   (JSON.stringify($json.output))
 ```
 
-### O que foi corrigido ✅
+### Conferência por item
 
-1. **Switch e If removidos** → fluxo linear e claro, sem branches mortas.
-2. **`Filtro de Dados` → `EXTRAÇÃO_PDF` direto** → resolve o problema da saída "pdf" do Switch que estava desconectada.
-3. **`finalText` agora injeta no prompt do Clara**: texto OCR completo, `audit_criteria`, `analysis_rule_ids`, `risk_rule_ids` e os metadados (`title`, `agency`, `modality`, `estimated_value`, `published_at`). O agente passa a usar os critérios do auditor e as regras selecionadas. ✅
-4. **Encadeamento Clara → Information Extractor → Respond to Webhook** está intacto.
+| # | Item | Status | Evidência no nó |
+|---|------|--------|-----------------|
+| 1 | Fluxo linear, sem Switch/If | ✅ | `connections` segue Webhook→Filtro→OCR→…→Respond |
+| 2 | Critérios, regras e metadados no prompt | ✅ | `finalText.text` referencia `audit_criteria`, `analysis_rule_ids`, `risk_rule_ids`, `title`, `agency`, `modality`, `estimated_value`, `published_at` |
+| 3 | `Respond to Webhook` devolve JSON limpo | ✅ | `responseBody: ={{ JSON.stringify($json.output) }}` |
+| 4 | Information Extractor usa output correto | ✅ | `text: ={{ $json.output }}` |
+| 5 | Chave Mistral fora do JSON | ✅ | `authentication: genericCredentialType` (HTTP Header Auth) |
+| 6 | Schema do Information Extractor bate com a edge function | ✅ | `risk_score`, `summary`, `extracted_data{...}`, `alerts[{alert_type,title,severity,evidence,criteria,review_notes}]` |
 
-### O que ainda precisa ser corrigido ❌
+### Pendência menor (não bloqueia funcionamento)
 
-#### 1. ❌ CRÍTICO — `Respond to Webhook` continua devolvendo shape errada
-Configuração atual (inalterada):
-```json
-{ "myField": "{{ $json.output[0].text }}" }
+**System prompt do nó `Clara` ainda contém uma instrução incoerente:**
+
 ```
-A edge function `n8n-process-document` espera o JSON da CLARA no root (`risk_score`, `summary`, `extracted_data`, `alerts`). Hoje recebe:
-```json
-{ "myField": "{\"risk_score\":72, \"summary\":\"...\", \"alerts\":[...]}" }
+## Tarefa
+1. leia o PDF de file_url.
 ```
-> **Observação**: na sessão anterior eu endureci a edge function para tolerar esse wrapper (faz unwrap automático de `myField`, `output`, `text` mesmo com `\`\`\`json` fences). Então o sistema deve funcionar mesmo sem corrigir esse nó. Porém, o ideal continua sendo entregar o JSON limpo.
->
-> **Correção definitiva no n8n:**
-> - `Response Body:` `={{ $json.output }}`
-> - (ou) `={{ JSON.stringify($json.output) }}` se vier como objeto aninhado
->
-> Após isso, posso reverter o unwrap na edge function.
 
-Além disso, há um erro estrutural: `$json.output[0].text` assume que a saída do Information Extractor é um **array**. Os Information Extractors do n8n geralmente retornam o objeto direto em `$json.output`. Validar.
+Nesse ponto o agente já recebe o **texto OCR** via user message (campo `texto_edital`/`EDITAL`), não uma URL. Manter "leia o PDF de file_url" pode induzir o modelo a tentar buscar uma URL inexistente e a alucinar.
 
-#### 2. ❌ Prompt do Clara ainda referencia `{{ $json.file_url }}`
-No `systemMessage`:
-> "analisar o edital recebido (PDF em `{{ $json.file_url }}`)"
-
-Nesse ponto, `$json` é o resultado do `finalText` (só tem `text`). A expressão resolve para string vazia. Não quebra (o agente recebe o texto OCR via user prompt), mas é instrução errada no system prompt.
-
-**Correção:** trocar por `{{ $('Webhook').item.json.body.file_url }}` ou simplesmente remover a frase, deixando claro no prompt que o texto do edital já vem pronto no user message.
-
-#### 3. ❌ Chave Mistral hard-coded em `EXTRAÇÃO_PDF`
+**Correção sugerida (trocar o passo 1):**
 ```
-Authorization: Bearer OJvNM4pv8LyOs8PZVAl9uRqN1TCLKvdm
+1. Use o texto fornecido em "EDITAL (texto OCR)" como fonte única de análise — não tente acessar URLs.
 ```
-Continua exposta. **Ações:**
-1. Criar Credential `HTTP Header Auth` no n8n com `Name=Authorization` e `Value=Bearer ...`.
-2. No nó, mudar Authentication → "Generic Credential Type" → "HTTP Header Auth".
-3. Remover a chave do JSON.
-4. **Revogar a chave atual** no console Mistral e gerar nova.
 
-#### 4. ⚠️ Edge case — requisição sem PDF
-Com a remoção do Switch, qualquer chamada sem `file_url` quebra no `EXTRAÇÃO_PDF` (Mistral rejeita URL vazia). O wizard CLARA sempre envia `file_url`, então na prática não acontece — mas se houver intenção futura de aceitar análise de texto puro (sem PDF), precisará reintroduzir uma branch condicional.
+### Higiene fora do workflow
 
-#### 5. ⚠️ Webhook `claraauditoriatitulo` (Etapa 1)
-Este workflow não cobre a extração de metadados do título (Etapa 1 do wizard). Verificar separadamente se existe outro workflow ativo respondendo em `…/claraauditoriatitulo`.
+- **Revogar no console Mistral** a chave antiga `OJvNM4pv8LyOs8PZVAl9uRqN1TCLKvdm` (exposta em versões anteriores do JSON), mesmo que agora esteja via Credential.
+- **Workflow Etapa 1** (`/claraauditoriatitulo`, extração de metadados a partir do título) — não faz parte deste workflow; precisa ser verificado separadamente se for o caso.
 
-### Resumo
+### Validação end-to-end
 
-| # | Item | Status |
-|---|------|--------|
-| 1 | Switch/If removidos, fluxo linear | ✅ Feito |
-| 2 | Critérios, regras e metadados no prompt | ✅ Feito |
-| 3 | Respond to Webhook devolver JSON limpo | ❌ Pendente (mitigado na edge function) |
-| 4 | Remover `{{ $json.file_url }}` do system prompt | ❌ Pendente |
-| 5 | Mover chave Mistral para Credential e rotacionar | ❌ Pendente |
-| 6 | Workflow de `claraauditoriatitulo` | ⚠️ Verificar à parte |
+Tudo no contrato Webhook → Edge Function (`n8n-process-document`) está casado. Para confirmar em produção, suba um documento novo pelo wizard e me peça para conferir `procurement_documents.risk_score` + `risk_alerts` + logs da edge function.
 
-### Próximo passo proposto
+### Conclusão
 
-Posso, em build mode, **rodar um teste real** chamando a edge function `n8n-process-document` com um document_id existente para verificar end-to-end se o workflow agora produz `risk_score`, `summary` e `alerts` corretamente (graças ao unwrap automático já em produção). Se passar, fica só pendente a higiene dos itens 3-6 acima.
+O workflow está **funcionalmente conforme** o sistema CLARA. Resta apenas o ajuste cosmético no system prompt (passo 1) e a rotação da chave Mistral antiga. Posso aplicar o ajuste no prompt assim que você mudar para build mode — ele é feito direto no n8n, não no código do projeto.
