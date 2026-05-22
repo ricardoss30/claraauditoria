@@ -72,36 +72,40 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
 
     const { data: sessionData } = await supabase.auth.getSession();
     const accessToken = sessionData.session?.access_token;
-    if (!accessToken) throw new Error("Sessão expirada. Faça login novamente.");
+    const userId = sessionData.session?.user?.id;
+    if (!accessToken || !userId) throw new Error("Sessão expirada. Faça login novamente.");
 
-    const form = new FormData();
-    form.append("data", selectedFile, selectedFile.name);
-    form.append("file_name", selectedFile.name);
-    form.append("mime_type", selectedFile.type || "application/pdf");
+    // 1. Upload temporary copy to Storage (no big payload to n8n)
+    const safeName = selectedFile.name.replace(/[^\w.\-]+/g, "_");
+    const tempPath = `_tmp/${userId}/${crypto.randomUUID()}-${safeName}`;
+    const { error: uploadErr } = await supabase.storage
+      .from("documents")
+      .upload(tempPath, selectedFile, {
+        contentType: selectedFile.type || "application/pdf",
+        upsert: false,
+      });
+    if (uploadErr) throw new Error(`Falha no upload temporário: ${uploadErr.message}`);
 
+    // 2. Call edge function with JSON pointer; it signs URL and posts to n8n
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/extract-metadata-n8n`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         apikey: SUPABASE_ANON_KEY,
+        "Content-Type": "application/json",
       },
-      body: form,
+      body: JSON.stringify({
+        file_path: tempPath,
+        file_name: selectedFile.name,
+        mime_type: selectedFile.type || "application/pdf",
+      }),
     });
     if (!resp.ok) {
       const txt = await resp.text().catch(() => "");
       throw new Error(`extract-metadata-n8n ${resp.status}: ${txt}`);
     }
 
-    const raw = await resp.text();
-
-    let parsed: any = {};
-    const trimmed = raw?.trim() ?? "";
-    if (trimmed.length > 0) {
-      const m = trimmed.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-      try { parsed = JSON.parse(m ? m[0] : trimmed); } catch { parsed = {}; }
-    }
-    const payload = Array.isArray(parsed) ? parsed[0] : parsed;
-    const result = payload?.output ?? payload?.data ?? payload ?? {};
+    const result = await resp.json().catch(() => ({}));
 
     onChange({
       title: result.title || data.title,
