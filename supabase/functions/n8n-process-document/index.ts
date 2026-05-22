@@ -148,6 +148,28 @@ Deno.serve(async (req) => {
     const respText = await n8nResp.text();
     if (!n8nResp.ok) {
       console.error(`n8n webhook error ${n8nResp.status}: ${respText.substring(0, 500)}`);
+      // Gateway timeouts (Cloudflare 524/504/502/408) — n8n continua processando do outro lado.
+      // Mantemos o documento como "processing" e devolvemos resposta amigável para o frontend
+      // ao invés de derrubar a UI com 500.
+      if ([408, 502, 503, 504, 524].includes(n8nResp.status)) {
+        await supabase.from("audit_logs").insert({
+          action: mode === "reprocess" ? "reprocess" : "upload",
+          resource_type: "document",
+          resource_id: document_id,
+          user_id: callerId,
+          ip_address: clientIp,
+          details: { via: "n8n", gateway_timeout: n8nResp.status, note: "n8n continua processando em background" },
+        });
+        return new Response(
+          JSON.stringify({
+            success: true,
+            pending: true,
+            message:
+              "O arquivo é grande e o n8n está processando em segundo plano. Atualize a página em alguns minutos para ver o resultado.",
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
       throw new Error(`Webhook n8n retornou erro ${n8nResp.status}: ${respText.substring(0, 300)}`);
     }
 
