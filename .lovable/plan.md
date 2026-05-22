@@ -1,57 +1,43 @@
-## Diagnóstico
+## Causa raiz
 
-O erro acontece no Step 1 do wizard, no fallback de **PDF escaneado** (`StepDocumentData.extractMetadataViaN8n`):
+1. `StepDocumentData.extractMetadataViaN8n` faz `fetch` direto do browser para `https://ricardoss30.app.n8n.cloud/webhook/...`.
+2. O n8n Cloud não envia `Access-Control-Allow-Origin` para o domínio do app, então o browser bloqueia a resposta (e o preflight, quando há). Resultado: `Failed to fetch` e o workflow nunca executa.
+3. A tentativa anterior usando edge function chamava `req.formData()`, materializando o PDF inteiro em memória do worker Deno → `Memory limit exceeded` (WORKER_RESOURCE_LIMIT).
 
-1. Frontend faz upload do PDF para `documents/_tmp/{userId}/{uuid}-{nome}.pdf`.
-2. Gera uma **signed URL** (TTL 1h) e envia para a edge function `extract-metadata-n8n`.
-3. A edge function repassa a `file_url` ao webhook do n8n (`C.L.A.R.A - Webhook Análise do Título`).
-4. O nó **EXTRAÇÃO_PDF** (Mistral OCR) tenta baixar o arquivo da URL e falha com `File could not be fetched from url`.
-5. No `finally` (linha 110 de `StepDocumentData.tsx`), o frontend **remove o arquivo de `_tmp/`** logo após `invoke` retornar.
+## Correção
 
-### Causa raiz
+Reintroduzir a edge function `extract-metadata-n8n` como **proxy em streaming**: ela valida o JWT, repassa `req.body` cru ao webhook do n8n com o mesmo `Content-Type` (multipart boundary preservado) e devolve a resposta com CORS liberado. O browser deixa de falar com `n8n.cloud` diretamente, eliminando o problema de CORS, e o worker não precisa parsear o multipart, eliminando o problema de memória.
 
-Race condition / fragilidade da signed URL:
-- O webhook do n8n geralmente responde **assim que recebe** o payload (modo produção), enquanto o nó EXTRAÇÃO_PDF roda de forma assíncrona. Quando o Mistral tenta buscar a URL, o frontend já apagou o arquivo no `finally`.
-- Mesmo se o arquivo persistisse, signed URLs do Supabase frequentemente são bloqueadas pelo fetcher do Mistral (caracteres no path, token longo, headers de redirect).
-- Token mostrado no erro: `iat=1779471991, exp=1779475591` — válido por 1h, então não é expiração; é indisponibilidade do objeto ou rejeição do fetch externo.
+### 1. `supabase/functions/extract-metadata-n8n/index.ts` (recriar)
 
-## Plano de correção
+- `Deno.serve` com `OPTIONS` retornando os `corsHeaders` usuais do projeto.
+- Validar `Authorization: Bearer ...` via `adminClient.auth.getUser(token)` (padrão dos demais edge functions).
+- Fazer `fetch(N8N_WEBHOOK_URL, { method: "POST", body: req.body, headers: { "Content-Type": req.headers.get("content-type") ?? "application/octet-stream" }, duplex: "half" })`. Sem `req.formData()`, sem `arrayBuffer()`.
+- Encaminhar a resposta do n8n como texto e tentar `JSON.parse` (com fallback tolerante já existente) devolvendo os campos `title`, `agency`, `modality`, `estimated_value`, `published_at`, `description`.
+- Timeout de 120 s via `AbortController`.
 
-Eliminar a dependência de URL pública/assinada e enviar o arquivo **diretamente como bytes** ao n8n.
+### 2. `supabase/functions/config.toml`
 
-### 1. Edge function `extract-metadata-n8n`
+Garantir entrada da função com `verify_jwt = true` (manter padrão do projeto).
 
-Mudar o contrato de entrada para receber o arquivo (base64) ou stream:
+### 3. `src/components/wizard/StepDocumentData.tsx`
 
-- Aceitar `multipart/form-data` do frontend com o `File` original (mais simples e sem inflar payload em 33%).
-- Repassar ao webhook do n8n também como `multipart/form-data`, no campo `data` (padrão do nó Webhook do n8n para arquivos binários).
-- Manter validação de JWT via `adminClient.auth.getUser()` (padrão dos demais edge functions).
-- Limitar tamanho (ex.: 20 MB) — PDFs maiores já caem no fluxo principal de extração local.
+Em `extractMetadataViaN8n`:
 
-### 2. `StepDocumentData.tsx`
+- Remover o `fetch` direto para o domínio do n8n.
+- Voltar a chamar a edge function via `fetch(`${SUPABASE_URL}/functions/v1/extract-metadata-n8n`, ...)` enviando o mesmo `FormData` (`data`, `file_name`, `mime_type`) com `Authorization: Bearer <access_token>` e `apikey: <SUPABASE_PUBLISHABLE_KEY>`. Não definir `Content-Type` manualmente — o browser inclui o boundary correto.
+- Manter o tratamento de toast/erros existente.
 
-- Remover o upload para `_tmp/`, a geração de signed URL e o `remove()` no `finally`.
-- `extractMetadataViaN8n(file)` passa a montar um `FormData` com o `File` e chamar a edge function diretamente.
-- Mantém o fluxo: extração local primeiro; se texto < 100 chars (PDF escaneado), envia binário ao n8n.
+### 4. Ação manual no n8n (workflow `C.L.A.R.A - Webhook Análise do Título`)
 
-### 3. Workflow n8n `C.L.A.R.A - Webhook Análise do Título`
+Nenhuma mudança nova exigida: o webhook continua recebendo `multipart/form-data` no campo binário `data`, exatamente como já está configurado para o nó EXTRAÇÃO_PDF (Mistral OCR).
 
-Ajuste do lado do n8n (a ser feito pelo usuário):
+## Por que não voltar a usar URL assinada
 
-- Nó **Webhook**: configurar para receber binário (option `Binary Data` ou ler `$binary.data`).
-- Nó **EXTRAÇÃO_PDF (Mistral OCR)**: trocar a fonte de `URL` para `Binary` apontando para o campo `data` recebido.
+Já testado e descartado: o Mistral OCR não consegue baixar signed URLs do Supabase de forma confiável e o frontend removia o `_tmp/` antes do nó assíncrono buscar o arquivo. Streaming binário pelo edge function é mais simples e elimina ambos os problemas.
 
-## Detalhes técnicos
+## Arquivos afetados
 
-- O bucket `documents` continua privado e sem objetos efêmeros em `_tmp/`.
-- Não há mais signed URLs envolvidas no fluxo de extração de metadados.
-- O fluxo principal de upload (Step 4 / `useDocumentUpload`) **não é afetado** — ele já usa `raw_text` extraído no cliente e envia ao `n8n-process-document`, conforme correção aplicada anteriormente.
-
-## Arquivos a alterar
-
-- `supabase/functions/extract-metadata-n8n/index.ts` — aceitar multipart e repassar binário.
-- `src/components/wizard/StepDocumentData.tsx` — remover upload temporário, enviar `FormData`.
-
-## Ação manual do usuário (n8n)
-
-Após o deploy, ajustar o workflow `C.L.A.R.A - Webhook Análise do Título` para ler o binário do webhook ao invés de buscar `file_url`. Posso confirmar o ajuste via `get_workflow_details` depois.
+- `supabase/functions/extract-metadata-n8n/index.ts` (recriar em modo streaming)
+- `supabase/config.toml` (registrar função se necessário)
+- `src/components/wizard/StepDocumentData.tsx` (chamar edge function em vez do n8n direto)

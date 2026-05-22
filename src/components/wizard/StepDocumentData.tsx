@@ -66,21 +66,34 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
   }, [data, onChange]);
 
   const extractMetadataViaN8n = useCallback(async (selectedFile: File) => {
-    const N8N_WEBHOOK_URL =
-      "https://ricardoss30.app.n8n.cloud/webhook/ebc237a3-02cb-4987-bca6-0fd09ab8d983/claraauditoriatitulo";
+    const SUPABASE_URL = "https://ktqrkijazzpafmfbkohe.supabase.co";
+    const SUPABASE_ANON_KEY =
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imt0cXJraWphenpwYWZtZmJrb2hlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA5MjI3NzMsImV4cCI6MjA4NjQ5ODc3M30.kYtg5o4rPQToUE9zlCEW4lYQ1sixChwZoRsaZwxIciQ";
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) throw new Error("Sessão expirada. Faça login novamente.");
 
     const form = new FormData();
     form.append("data", selectedFile, selectedFile.name);
     form.append("file_name", selectedFile.name);
     form.append("mime_type", selectedFile.type || "application/pdf");
 
-    const resp = await fetch(N8N_WEBHOOK_URL, { method: "POST", body: form });
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/extract-metadata-n8n`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: form,
+    });
     if (!resp.ok) {
       const txt = await resp.text().catch(() => "");
-      throw new Error(`n8n webhook ${resp.status}: ${txt}`);
+      throw new Error(`extract-metadata-n8n ${resp.status}: ${txt}`);
     }
 
     const raw = await resp.text();
+
     let parsed: any = {};
     const trimmed = raw?.trim() ?? "";
     if (trimmed.length > 0) {
