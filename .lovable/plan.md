@@ -1,57 +1,32 @@
-## Reavaliação do workflow CLARA Fase 2 (versão `d3192b29`, 22/05 14:54)
+## Edição automatizada do workflow CLARA Fase 2 via API do n8n
 
-Inspeção feita nó a nó via MCP do n8n. Os ajustes pendentes da rodada anterior foram aplicados.
+### Objetivo
+Aplicar o ajuste no system prompt do nó `Clara` (workflow `j4d43UZrYceItJ5z`) através da API REST do n8n, sem precisar abrir o editor manualmente.
 
-### Fluxo (linear, sem branches mortas)
+### Etapas
 
-```text
-Webhook (POST /claraauditoria)
-  → Filtro de Dados  (mapeia body.fileUrl/fileName/title)
-    → EXTRAÇÃO_PDF   (Mistral OCR — agora via Credential)
-      → Extract from File1
-        → Code in JavaScript (concatena markdown das páginas)
-          → finalText  (injeta OCR + audit_criteria + rule_ids + metadados)
-            → Clara    (GPT-4o + RAG + memória)
-              → Information Extractor  (text = $json.output)
-                → Respond to Webhook   (JSON.stringify($json.output))
-```
+1. **Adicionar secret `N8N_API_KEY`**
+   - Você gera em n8n → Settings → n8n API → Create API Key (escopo `workflow:read`, `workflow:update`).
+   - Cole na caixa segura que vai aparecer.
 
-### Conferência por item
+2. **Criar edge function `n8n-patch-clara-prompt`** (one-shot, sem UI)
+   - Auth: JWT obrigatório, restrita a role `admin`.
+   - Faz `GET https://ricardoss30.app.n8n.cloud/api/v1/workflows/j4d43UZrYceItJ5z` para baixar o JSON atual.
+   - Localiza o nó `Clara` em `nodes[]` e substitui no `parameters.options.systemMessage`:
+     - `1. leia o PDF de file_url.`
+     - **→** `1. Use o texto fornecido em "EDITAL (texto OCR)" como fonte única de análise — não tente acessar URLs.`
+   - Faz `PUT /api/v1/workflows/j4d43UZrYceItJ5z` com o JSON modificado (mantendo `name`, `nodes`, `connections`, `settings`, `staticData`).
+   - Retorna `{ ok: true, replaced: <bool>, versionId: <novo> }`.
 
-| # | Item | Status | Evidência no nó |
-|---|------|--------|-----------------|
-| 1 | Fluxo linear, sem Switch/If | ✅ | `connections` segue Webhook→Filtro→OCR→…→Respond |
-| 2 | Critérios, regras e metadados no prompt | ✅ | `finalText.text` referencia `audit_criteria`, `analysis_rule_ids`, `risk_rule_ids`, `title`, `agency`, `modality`, `estimated_value`, `published_at` |
-| 3 | `Respond to Webhook` devolve JSON limpo | ✅ | `responseBody: ={{ JSON.stringify($json.output) }}` |
-| 4 | Information Extractor usa output correto | ✅ | `text: ={{ $json.output }}` |
-| 5 | Chave Mistral fora do JSON | ✅ | `authentication: genericCredentialType` (HTTP Header Auth) |
-| 6 | Schema do Information Extractor bate com a edge function | ✅ | `risk_score`, `summary`, `extracted_data{...}`, `alerts[{alert_type,title,severity,evidence,criteria,review_notes}]` |
+3. **Disparar a função uma vez** via `supabase--curl_edge_functions` (usa o JWT da sessão atual do preview).
 
-### Pendência menor (não bloqueia funcionamento)
+4. **Validar via MCP n8n** com `get_workflow_details` para confirmar que o trecho novo está no system prompt e que o restante do workflow ficou intacto.
 
-**System prompt do nó `Clara` ainda contém uma instrução incoerente:**
+5. **(Opcional)** Manter a função no projeto para futuros patches pontuais, ou removê-la após o uso. Recomendo manter — útil caso queira automatizar mais ajustes.
 
-```
-## Tarefa
-1. leia o PDF de file_url.
-```
+### Riscos / mitigações
+- **Backup:** antes do PUT, a função loga o JSON original (visível em Edge Function logs) para rollback manual se necessário.
+- **Idempotência:** se o trecho antigo não for encontrado, retorna `replaced: false` sem alterar nada.
+- **Permissão:** somente `admin` pode chamar; outros recebem 403.
 
-Nesse ponto o agente já recebe o **texto OCR** via user message (campo `texto_edital`/`EDITAL`), não uma URL. Manter "leia o PDF de file_url" pode induzir o modelo a tentar buscar uma URL inexistente e a alucinar.
-
-**Correção sugerida (trocar o passo 1):**
-```
-1. Use o texto fornecido em "EDITAL (texto OCR)" como fonte única de análise — não tente acessar URLs.
-```
-
-### Higiene fora do workflow
-
-- **Revogar no console Mistral** a chave antiga `OJvNM4pv8LyOs8PZVAl9uRqN1TCLKvdm` (exposta em versões anteriores do JSON), mesmo que agora esteja via Credential.
-- **Workflow Etapa 1** (`/claraauditoriatitulo`, extração de metadados a partir do título) — não faz parte deste workflow; precisa ser verificado separadamente se for o caso.
-
-### Validação end-to-end
-
-Tudo no contrato Webhook → Edge Function (`n8n-process-document`) está casado. Para confirmar em produção, suba um documento novo pelo wizard e me peça para conferir `procurement_documents.risk_score` + `risk_alerts` + logs da edge function.
-
-### Conclusão
-
-O workflow está **funcionalmente conforme** o sistema CLARA. Resta apenas o ajuste cosmético no system prompt (passo 1) e a rotação da chave Mistral antiga. Posso aplicar o ajuste no prompt assim que você mudar para build mode — ele é feito direto no n8n, não no código do projeto.
+Pronto para seguir? Assim que você confirmar, vou pedir o secret `N8N_API_KEY` e criar a função.
