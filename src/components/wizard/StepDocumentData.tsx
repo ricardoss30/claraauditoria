@@ -75,13 +75,36 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
     const userId = sessionData.session?.user?.id;
     if (!accessToken || !userId) throw new Error("Sessão expirada. Faça login novamente.");
 
-    // 1. Upload temporary copy to Storage (no big payload to n8n)
+    // 1. Recortar primeiras páginas (metadados ficam na capa/preâmbulo).
+    //    Evita enviar PDFs de 500MB-1GB ao n8n, que devolve 502 (Cloudflare).
+    const HEADER_PAGES = 30;
+    let sliceBlob: Blob = selectedFile;
+    let sliceContentType = selectedFile.type || "application/pdf";
+    try {
+      const { PDFDocument } = await import("pdf-lib");
+      const srcBytes = await selectedFile.arrayBuffer();
+      const srcPdf = await PDFDocument.load(srcBytes, { ignoreEncryption: true });
+      const totalPages = srcPdf.getPageCount();
+      const take = Math.min(HEADER_PAGES, totalPages);
+      if (take < totalPages) {
+        const outPdf = await PDFDocument.create();
+        const pages = await outPdf.copyPages(srcPdf, Array.from({ length: take }, (_, i) => i));
+        pages.forEach((p) => outPdf.addPage(p));
+        const outBytes = await outPdf.save();
+        sliceBlob = new Blob([outBytes], { type: "application/pdf" });
+        sliceContentType = "application/pdf";
+        console.log(`[n8n] recorte: ${take}/${totalPages} páginas, ${(sliceBlob.size / 1024 / 1024).toFixed(1)}MB`);
+      }
+    } catch (e) {
+      console.warn("[n8n] Falha ao recortar PDF, enviando arquivo original:", e);
+    }
+
     const safeName = selectedFile.name.replace(/[^\w.\-]+/g, "_");
-    const tempPath = `_tmp/${userId}/${crypto.randomUUID()}-${safeName}`;
+    const tempPath = `_tmp/${userId}/${crypto.randomUUID()}-header-${safeName}`;
     const { error: uploadErr } = await supabase.storage
       .from("documents")
-      .upload(tempPath, selectedFile, {
-        contentType: selectedFile.type || "application/pdf",
+      .upload(tempPath, sliceBlob, {
+        contentType: sliceContentType,
         upsert: false,
       });
     if (uploadErr) throw new Error(`Falha no upload temporário: ${uploadErr.message}`);
