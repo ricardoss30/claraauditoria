@@ -66,48 +66,44 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
   }, [data, onChange]);
 
   const extractMetadataViaN8n = useCallback(async (selectedFile: File) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
       toast.error("Sessão expirada. Faça login novamente.");
       return;
     }
-    const safeName = selectedFile.name.replace(/[^\w.\-]/g, "_");
-    const path = `_tmp/${user.id}/${crypto.randomUUID()}-${safeName}`;
 
-    const { error: upErr } = await supabase.storage
-      .from("documents")
-      .upload(path, selectedFile, { contentType: selectedFile.type, upsert: false });
-    if (upErr) throw upErr;
+    const form = new FormData();
+    form.append("file", selectedFile, selectedFile.name);
+    form.append("file_name", selectedFile.name);
+    form.append("mime_type", selectedFile.type || "application/pdf");
 
-    try {
-      const { data: signed, error: signErr } = await supabase.storage
-        .from("documents")
-        .createSignedUrl(path, 3600);
-      if (signErr || !signed?.signedUrl) throw signErr ?? new Error("Falha ao gerar URL");
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-metadata-n8n`;
+    const resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      },
+      body: form,
+    });
 
-      const { data: result, error } = await supabase.functions.invoke("extract-metadata-n8n", {
-        body: {
-          file_url: signed.signedUrl,
-          file_name: selectedFile.name,
-          mime_type: selectedFile.type || "application/pdf",
-        },
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => "");
+      throw new Error(`extract-metadata-n8n ${resp.status}: ${txt}`);
+    }
+    const result = await resp.json();
+
+    if (result) {
+      onChange({
+        title: result.title || data.title,
+        agency: result.agency || data.agency,
+        modality: result.modality || data.modality,
+        estimated_value: result.estimated_value || data.estimated_value,
+        published_at: result.published_at || data.published_at,
+        description: result.description || data.description,
       });
-      if (error) throw error;
-
-      if (result) {
-        onChange({
-          title: result.title || data.title,
-          agency: result.agency || data.agency,
-          modality: result.modality || data.modality,
-          estimated_value: result.estimated_value || data.estimated_value,
-          published_at: result.published_at || data.published_at,
-          description: result.description || data.description,
-        });
-        setExtractionDone(true);
-        toast.success("Metadados extraídos via n8n!");
-      }
-    } finally {
-      await supabase.storage.from("documents").remove([path]).catch(() => {});
+      setExtractionDone(true);
+      toast.success("Metadados extraídos via n8n!");
     }
   }, [data, onChange]);
 
