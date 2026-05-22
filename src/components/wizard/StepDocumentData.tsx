@@ -119,6 +119,8 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
     if (!hasMetadata) {
       console.warn("n8n retornou sem metadados", result);
       toast.warning("O n8n processou o arquivo, mas não retornou metadados. Verifique a execução do workflow.");
+    } else {
+      toast.success("Metadados extraídos via n8n!");
     }
 
     onChange({
@@ -130,7 +132,6 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
       description: result.description || data.description,
     });
     setExtractionDone(true);
-    toast.success("Metadados extraídos via n8n!");
   }, [data, onChange]);
 
   const handleFileSelect = useCallback(async (selectedFile: File) => {
