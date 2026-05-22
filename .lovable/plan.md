@@ -1,57 +1,40 @@
 ## Diagnóstico
 
-O arquivo não aparece como execução no workflow porque ele está sendo bloqueado antes de entrar no n8n:
+O upload temporário para o bucket `documents` está funcionando e a Edge Function responde `200`, mas retorna campos vazios. Pelo workflow `C.L.A.R.A - Webhook Análise do Título`, o problema provável não é o token em si: tokens assinados do Supabase mudam a cada geração porque incluem `iat`, `exp` e o caminho do arquivo. O que mudou de forma relevante é que a função atual remove o arquivo temporário logo após o n8n responder. Como o n8n pode responder antes de o OCR/serviço externo terminar de buscar o `file_url`, o arquivo pode estar sendo apagado cedo demais ou a URL pode estar sendo enviada em um formato que o nó de OCR não consome corretamente.
 
-- Os logs da edge function mostram `n8n webhook error 413 Payload Too Large` retornado pelo Cloudflare do `n8n.cloud`.
-- Isso significa que a requisição chega até a borda do n8n, mas é rejeitada por tamanho antes do Webhook criar uma execução.
-- O workflow `C.L.A.R.A - Webhook Análise do Título` também não está configurado para usar o binário recebido em `data`: o nó `EXTRAÇÃO_PDF` chama a Mistral OCR com `document_url: {{ $json.body.fileUrl }}`.
-- Portanto, o caminho atual de enviar o PDF inteiro como `multipart/form-data` para o n8n está incompatível com o limite do n8n Cloud e com o desenho atual do workflow.
+Também identifiquei que o workflow espera campos aninhados como `body.fileUrl`/`body.fileName` após o primeiro filtro, enquanto a Edge Function envia `file_url`/`file_name` no corpo raiz. Embora parte do workflow tente mapear `$('Webhook').item.json.body.file_url`, há nós seguintes usando `body.fileUrl`, então vou tornar o payload compatível com ambos os formatos.
 
 ## Plano de correção
 
-1. **Parar de enviar o PDF inteiro para o n8n**
-   - Alterar a etapa 1 para fazer upload temporário do PDF no Supabase Storage pelo navegador.
-   - O n8n receberá apenas JSON leve com `file_url`, `file_name` e `mime_type`, evitando o erro `413 Payload Too Large`.
+1. **Ajustar a Edge Function `extract-metadata-n8n`**
+   - Manter o arquivo temporário disponível por mais tempo; remover o cleanup imediato `remove([file_path])`.
+   - Gerar URL assinada com TTL maior, por exemplo 2 horas, para evitar expiração durante OCR/filas do n8n/Mistral.
+   - Enviar payload redundante e compatível com o workflow:
+     ```json
+     {
+       "file_url": "...",
+       "fileUrl": "...",
+       "file_name": "...",
+       "fileName": "...",
+       "mime_type": "application/pdf",
+       "body": {
+         "file_url": "...",
+         "fileUrl": "...",
+         "file_name": "...",
+         "fileName": "..."
+       }
+     }
+     ```
+   - Adicionar logs seguros da função: caminho, nome, status do n8n e tamanho da resposta, sem imprimir o token completo.
 
-2. **Usar a edge function como orquestradora segura**
-   - Alterar `extract-metadata-n8n` para receber JSON com o caminho do arquivo no Storage, não multipart.
-   - Validar o JWT do usuário.
-   - Gerar uma signed URL com validade suficiente para o OCR.
-   - Enviar ao webhook do n8n um JSON compatível com o workflow atual:
+2. **Ajustar o frontend em `StepDocumentData.tsx`**
+   - Manter o upload temporário como está, mas melhorar a mensagem de erro quando a Edge Function retornar `200` com campos vazios.
+   - Opcionalmente enviar também `file_size` para diagnóstico.
 
-   ```json
-   {
-     "file_url": "https://...signed-url...",
-     "file_name": "PROCESSO...pdf",
-     "mime_type": "application/pdf"
-   }
-   ```
+3. **Validar o fluxo**
+   - Chamar a Edge Function com um payload semelhante ao último request para confirmar que a função chega ao n8n e retorna erro útil quando o arquivo não existe/expirou.
+   - Depois da implementação, você testa novamente com o PDF real no app; a evidência esperada é uma execução nova no n8n e resposta preenchida ou erro explícito do OCR.
 
-3. **Ajustar o frontend da etapa 1**
-   - Em `StepDocumentData.tsx`, quando o PDF for escaneado:
-     - fazer upload para um caminho temporário em `documents/_tmp/<user_id>/<uuid>-arquivo.pdf`;
-     - chamar a edge function com `{ file_path, file_name, mime_type }`;
-     - manter os campos preenchidos pela resposta do n8n.
-   - Não enviar mais o arquivo binário para a edge function/n8n.
+## Observação importante
 
-4. **Preservar o arquivo até o OCR terminar**
-   - Não apagar o arquivo temporário antes da resposta do n8n.
-   - A edge function poderá limpar o `_tmp` somente depois de receber resposta do webhook, ou manter o arquivo temporariamente se houver timeout para não quebrar uma execução ainda em andamento.
-
-5. **Manter o workflow n8n quase igual**
-   - O workflow já espera `body.file_url` no nó `Filtro de Dados` e repassa para `body.fileUrl`.
-   - O nó `EXTRAÇÃO_PDF` já usa `document_url`, então deve funcionar com a signed URL persistente.
-   - Apenas recomendo remover credenciais/API keys expostas diretamente nos parâmetros do nó e usar credenciais do n8n, mas isso é uma melhoria de segurança separada.
-
-6. **Melhorar mensagens de erro**
-   - Se a edge receber `413`, mostrar mensagem clara: “Arquivo muito grande para envio direto; usando URL temporária”.
-   - Se a Mistral não conseguir baixar a signed URL, retornar detalhes para distinguir URL expirada, arquivo apagado ou permissão.
-
-7. **Validação**
-   - Testar com o mesmo arquivo `PROCESSO 3408.2026 - LOCAÇÃO SÃO GERALDO.pdf`.
-   - Confirmar nos logs que o n8n não retorna mais `413`.
-   - Confirmar que o workflow cria execução e que o nó `EXTRAÇÃO_PDF` recebe uma URL acessível.
-
-## Resultado esperado
-
-O PDF deixa de ser bloqueado pelo Cloudflare/n8n por tamanho, o workflow volta a receber a chamada como JSON, e o nó `EXTRAÇÃO_PDF` passa a buscar o documento por signed URL enquanto o arquivo ainda existe no Storage.
+A diferença entre o token antigo e o atual é esperada: cada URL assinada do Supabase gera um JWT novo. O ponto crítico é o valor interno `url` do token apontar para `documents/_tmp/...pdf` existente e acessível durante todo o processamento.
