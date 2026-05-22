@@ -9,7 +9,7 @@ const corsHeaders = {
 const N8N_WEBHOOK_URL =
   "https://ricardoss30.app.n8n.cloud/webhook/ebc237a3-02cb-4987-bca6-0fd09ab8d983/claraauditoriatitulo";
 
-const SIGNED_URL_TTL_SECONDS = 60 * 30; // 30 minutes
+const SIGNED_URL_TTL_SECONDS = 60 * 60 * 2; // 2 hours
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -41,6 +41,7 @@ Deno.serve(async (req) => {
     const file_path = String(body.file_path ?? "");
     const file_name = String(body.file_name ?? "");
     const mime_type = String(body.mime_type ?? "application/pdf");
+    const file_size = Number(body.file_size ?? 0);
 
     if (!file_path) {
       return json({ error: "Missing file_path" }, 400);
@@ -56,6 +57,33 @@ Deno.serve(async (req) => {
       return json({ error: "Could not create signed URL", details: signErr?.message }, 500);
     }
 
+    console.log("extract-metadata-n8n signed file", {
+      file_path,
+      file_name,
+      mime_type,
+      file_size,
+      signed_url_ttl_seconds: SIGNED_URL_TTL_SECONDS,
+    });
+
+    const webhookPayload = {
+      file_url: signed.signedUrl,
+      fileUrl: signed.signedUrl,
+      file_name,
+      fileName: file_name,
+      mime_type,
+      mimeType: mime_type,
+      file_size,
+      body: {
+        file_url: signed.signedUrl,
+        fileUrl: signed.signedUrl,
+        file_name,
+        fileName: file_name,
+        mime_type,
+        mimeType: mime_type,
+        file_size,
+      },
+    };
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120_000);
 
@@ -64,11 +92,7 @@ Deno.serve(async (req) => {
       n8nResponse = await fetch(N8N_WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          file_url: signed.signedUrl,
-          file_name,
-          mime_type,
-        }),
+        body: JSON.stringify(webhookPayload),
         signal: controller.signal,
       });
     } finally {
@@ -76,6 +100,11 @@ Deno.serve(async (req) => {
     }
 
     const raw = await n8nResponse.text();
+    console.log("extract-metadata-n8n n8n response", {
+      status: n8nResponse.status,
+      ok: n8nResponse.ok,
+      response_length: raw.length,
+    });
     if (!n8nResponse.ok) {
       console.error("n8n webhook error", n8nResponse.status, raw);
       return json(
