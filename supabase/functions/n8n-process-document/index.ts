@@ -165,6 +165,43 @@ Deno.serve(async (req) => {
     if (result?.data && typeof result.data === "object") result = { ...result, ...result.data };
     if (result?.json && typeof result.json === "object") result = { ...result, ...result.json };
 
+    // Tolerate "Respond to Webhook" wrappers that put the real JSON inside a
+    // single string field (e.g. { myField: "...json..." }, { output: "..." },
+    // { text: "..." }). We try to extract the embedded JSON object.
+    const tryUnwrap = (val: unknown): any | null => {
+      if (typeof val !== "string") return null;
+      const trimmed = val.trim();
+      // Strip ```json ... ``` fences if present
+      const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+      const raw = fenced ? fenced[1] : trimmed;
+      const start = raw.indexOf("{");
+      const end = raw.lastIndexOf("}");
+      if (start === -1 || end === -1 || end <= start) return null;
+      try { return JSON.parse(raw.slice(start, end + 1)); } catch { return null; }
+    };
+
+    const hasExpectedKeys = (o: any) =>
+      o && typeof o === "object" &&
+      ("risk_score" in o || "summary" in o || "alerts" in o || "extracted_data" in o);
+
+    if (!hasExpectedKeys(result)) {
+      const candidates = [
+        result?.myField, result?.output, result?.text, result?.body, result?.result, result?.response,
+      ];
+      // Also handle output as array of { text }
+      if (Array.isArray(result?.output) && result.output[0]?.text) {
+        candidates.push(result.output[0].text);
+      }
+      for (const c of candidates) {
+        const unwrapped = tryUnwrap(c);
+        if (hasExpectedKeys(unwrapped)) {
+          console.log("Unwrapped n8n wrapper field into structured result");
+          result = unwrapped;
+          break;
+        }
+      }
+    }
+
     const riskScore = clampScore(result.risk_score ?? 0);
     const summary: string | undefined = result.summary || result.analysis;
     const extractedData = (typeof result.extracted_data === "object" && result.extracted_data) || {};
