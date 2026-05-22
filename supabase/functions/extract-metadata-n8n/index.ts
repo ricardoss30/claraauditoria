@@ -9,8 +9,6 @@ const corsHeaders = {
 const N8N_WEBHOOK_URL =
   "https://ricardoss30.app.n8n.cloud/webhook/ebc237a3-02cb-4987-bca6-0fd09ab8d983/claraauditoriatitulo";
 
-const MAX_BYTES = 20 * 1024 * 1024; // 20 MB
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -39,39 +37,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Expect multipart/form-data with a "file" field
-    const contentType = req.headers.get("content-type") || "";
-    if (!contentType.includes("multipart/form-data")) {
-      return new Response(
-        JSON.stringify({ error: "Envie o arquivo como multipart/form-data no campo 'file'." }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    const form = await req.formData();
-    const file = form.get("file");
-    if (!(file instanceof File)) {
-      return new Response(JSON.stringify({ error: "Campo 'file' ausente ou inválido." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    if (file.size > MAX_BYTES) {
-      return new Response(
-        JSON.stringify({ error: `Arquivo excede ${MAX_BYTES / 1024 / 1024} MB.` }),
-        { status: 413, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    const fileName = (form.get("file_name") as string) || file.name || "documento.pdf";
-    const mimeType = (form.get("mime_type") as string) || file.type || "application/pdf";
-
-    // Forward as multipart/form-data to n8n webhook
-    const outForm = new FormData();
-    outForm.append("data", file, fileName);
-    outForm.append("file_name", fileName);
-    outForm.append("mime_type", mimeType);
+    const contentType = req.headers.get("content-type") ?? "application/octet-stream";
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 120_000);
@@ -80,7 +46,10 @@ Deno.serve(async (req) => {
     try {
       n8nResponse = await fetch(N8N_WEBHOOK_URL, {
         method: "POST",
-        body: outForm,
+        headers: { "Content-Type": contentType },
+        body: req.body,
+        // @ts-ignore — Deno fetch supports half-duplex streaming
+        duplex: "half",
         signal: controller.signal,
       });
     } finally {
@@ -100,15 +69,12 @@ Deno.serve(async (req) => {
     const trimmed = raw?.trim() ?? "";
     if (trimmed.length > 0) {
       const jsonMatch = trimmed.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
-      const candidate = jsonMatch ? jsonMatch[0] : trimmed;
       try {
-        parsed = JSON.parse(candidate);
+        parsed = JSON.parse(jsonMatch ? jsonMatch[0] : trimmed);
       } catch {
-        console.warn("n8n response not JSON, returning empty metadata. Raw:", raw);
+        console.warn("n8n response not JSON. Raw:", raw);
         parsed = {};
       }
-    } else {
-      console.warn("n8n returned empty body");
     }
 
     const payload = Array.isArray(parsed) ? parsed[0] : parsed;
