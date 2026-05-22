@@ -128,9 +128,6 @@ Deno.serve(async (req) => {
     const payload = Array.isArray(parsed) ? parsed[0] : parsed;
     const result = payload?.output ?? payload?.data ?? payload ?? {};
 
-    // Best-effort cleanup of temp file
-    adminClient.storage.from("documents").remove([file_path]).catch(() => {});
-
     return json({
       title: result.title ?? "",
       agency: result.agency ?? "",
