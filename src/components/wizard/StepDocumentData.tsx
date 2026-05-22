@@ -98,6 +98,7 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
         file_path: tempPath,
         file_name: selectedFile.name,
         mime_type: selectedFile.type || "application/pdf",
+        file_size: selectedFile.size,
       }),
     });
     if (!resp.ok) {
@@ -106,6 +107,19 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
     }
 
     const result = await resp.json().catch(() => ({}));
+    const hasMetadata = Boolean(
+      result.title ||
+      result.agency ||
+      result.modality ||
+      result.estimated_value ||
+      result.published_at ||
+      result.description
+    );
+
+    if (!hasMetadata) {
+      console.warn("n8n retornou sem metadados", result);
+      toast.warning("O n8n processou o arquivo, mas não retornou metadados. Verifique a execução do workflow.");
+    }
 
     onChange({
       title: result.title || data.title,
