@@ -91,7 +91,7 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
         const pages = await outPdf.copyPages(srcPdf, Array.from({ length: take }, (_, i) => i));
         pages.forEach((p) => outPdf.addPage(p));
         const outBytes = await outPdf.save();
-        sliceBlob = new Blob([outBytes], { type: "application/pdf" });
+        sliceBlob = new Blob([outBytes as BlobPart], { type: "application/pdf" });
         sliceContentType = "application/pdf";
         console.log(`[n8n] recorte: ${take}/${totalPages} páginas, ${(sliceBlob.size / 1024 / 1024).toFixed(1)}MB`);
       }
