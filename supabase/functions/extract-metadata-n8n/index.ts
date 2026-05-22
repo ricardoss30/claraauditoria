@@ -47,6 +47,26 @@ Deno.serve(async (req) => {
       return json({ error: "Missing file_path" }, 400);
     }
 
+    // n8n Cloud / Cloudflare devolve 502 quando o workflow tenta baixar
+    // arquivos muito grandes (estoura memória/timeout do worker).
+    // Bloqueia cedo com mensagem clara em vez de deixar o webhook falhar.
+    const MAX_N8N_BYTES = 100 * 1024 * 1024; // 100 MB
+    if (file_size > MAX_N8N_BYTES) {
+      const mb = (file_size / 1024 / 1024).toFixed(1);
+      return json(
+        {
+          error: "file_too_large_for_n8n",
+          message:
+            `O arquivo tem ${mb} MB. A extração automática suporta no máximo ` +
+            `100 MB (limite do n8n Cloud). Envie um PDF menor ou preencha os ` +
+            `metadados manualmente.`,
+          file_size,
+          max_bytes: MAX_N8N_BYTES,
+        },
+        413,
+      );
+    }
+
     const { data: signed, error: signErr } = await adminClient
       .storage
       .from("documents")

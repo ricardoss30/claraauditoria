@@ -102,8 +102,18 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
       }),
     });
     if (!resp.ok) {
-      const txt = await resp.text().catch(() => "");
-      throw new Error(`extract-metadata-n8n ${resp.status}: ${txt}`);
+      const errBody = await resp.json().catch(() => ({} as any));
+      if (resp.status === 413 || errBody?.error === "file_too_large_for_n8n") {
+        toast.error(errBody?.message || "Arquivo muito grande para extração automática.");
+        setExtractionDone(true);
+        return;
+      }
+      if (resp.status === 502) {
+        toast.error("O serviço de extração (n8n) está indisponível no momento. Preencha os metadados manualmente.");
+        setExtractionDone(true);
+        return;
+      }
+      throw new Error(`extract-metadata-n8n ${resp.status}: ${errBody?.error || errBody?.message || ""}`);
     }
 
     const result = await resp.json().catch(() => ({}));
