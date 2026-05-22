@@ -66,45 +66,40 @@ export function StepDocumentData({ data, onChange, onNext, file, text, onFileCha
   }, [data, onChange]);
 
   const extractMetadataViaN8n = useCallback(async (selectedFile: File) => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-      toast.error("Sessão expirada. Faça login novamente.");
-      return;
-    }
+    const N8N_WEBHOOK_URL =
+      "https://ricardoss30.app.n8n.cloud/webhook/ebc237a3-02cb-4987-bca6-0fd09ab8d983/claraauditoriatitulo";
 
     const form = new FormData();
-    form.append("file", selectedFile, selectedFile.name);
+    form.append("data", selectedFile, selectedFile.name);
     form.append("file_name", selectedFile.name);
     form.append("mime_type", selectedFile.type || "application/pdf");
 
-    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/extract-metadata-n8n`;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-      },
-      body: form,
-    });
-
+    const resp = await fetch(N8N_WEBHOOK_URL, { method: "POST", body: form });
     if (!resp.ok) {
       const txt = await resp.text().catch(() => "");
-      throw new Error(`extract-metadata-n8n ${resp.status}: ${txt}`);
+      throw new Error(`n8n webhook ${resp.status}: ${txt}`);
     }
-    const result = await resp.json();
 
-    if (result) {
-      onChange({
-        title: result.title || data.title,
-        agency: result.agency || data.agency,
-        modality: result.modality || data.modality,
-        estimated_value: result.estimated_value || data.estimated_value,
-        published_at: result.published_at || data.published_at,
-        description: result.description || data.description,
-      });
-      setExtractionDone(true);
-      toast.success("Metadados extraídos via n8n!");
+    const raw = await resp.text();
+    let parsed: any = {};
+    const trimmed = raw?.trim() ?? "";
+    if (trimmed.length > 0) {
+      const m = trimmed.match(/\{[\s\S]*\}|\[[\s\S]*\]/);
+      try { parsed = JSON.parse(m ? m[0] : trimmed); } catch { parsed = {}; }
     }
+    const payload = Array.isArray(parsed) ? parsed[0] : parsed;
+    const result = payload?.output ?? payload?.data ?? payload ?? {};
+
+    onChange({
+      title: result.title || data.title,
+      agency: result.agency || data.agency,
+      modality: result.modality || data.modality,
+      estimated_value: result.estimated_value || data.estimated_value,
+      published_at: result.published_at || data.published_at,
+      description: result.description || data.description,
+    });
+    setExtractionDone(true);
+    toast.success("Metadados extraídos via n8n!");
   }, [data, onChange]);
 
   const handleFileSelect = useCallback(async (selectedFile: File) => {
