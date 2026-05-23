@@ -1,57 +1,70 @@
-## Contexto e decisão
+## Objetivo
 
-Suas respostas: arquivos de 500 MB – 1 GB, e este webhook (`C.L.A.R.A - Webhook Análise do Título`) precisa **apenas dos metadados de cabeçalho** (título, órgão, modalidade, valor estimado, data, descrição/objeto).
+Mudar a arquitetura do n8n de "request/response síncrono" para "fire-and-forget + callback assíncrono", eliminando o erro 524 (Cloudflare timeout) em PDFs grandes.
 
-Esses campos sempre estão nas **páginas iniciais do edital** (capa, preâmbulo, item "DO OBJETO"). Não há motivo técnico nem de negócio para mandar 1 GB ao n8n só para ler a capa.
+## Fluxo final
 
-Sobre a opção "n8n baixa via Range/streaming" que você escolheu: ela só ajuda se o workflow do n8n for reescrito para ler o PDF em partes — o Lovable sozinho não consegue mudar isso, e mesmo com Range o n8n Cloud (Cloudflare) continuaria estourando timeout em arquivos enormes. **Como o escopo é só cabeçalho, a solução correta e que funciona dentro dos limites é fatiar no navegador antes de subir.**
-
-Resumo: o navegador recorta as primeiras N páginas com `pdf-lib`, gera um PDF pequeno (~5–15 MB), faz upload desse recorte, e a Edge Function envia ao n8n exatamente como hoje. O arquivo original de 1 GB continua sendo salvo normalmente para o pipeline de análise de risco completo (que é outro fluxo, fora deste plano).
-
-## O que vai mudar
-
-```text
-ANTES                                       DEPOIS
-─────                                       ─────
-Upload do PDF 1GB → Edge Function           Upload do PDF 1GB → guardado normal (pipeline de risco)
-                  → signed URL              Recorte 1ªs 30 pgs (~5-15MB) → upload _tmp
-                  → n8n (502 Bad Gateway)   → Edge Function → signed URL → n8n (OK)
 ```
+Frontend → n8n-process-document (POST)
+              ↓
+              POST n8n webhook (com document_id + file_url)
+              ↓
+              n8n responde 200 imediato (Respond to Webhook1) ✓
+              ↓
+              [n8n processa em background: Mistral OCR + Gemini]
+              ↓
+              n8n chama POST n8n-analysis-callback
+                        (document_id, risk_score, summary, alerts, extracted_data)
+              ↓
+              Edge function grava resultado em procurement_documents + risk_alerts
+              ↓
+Frontend (realtime ou polling) vê status mudar de "processing" → "processed"
+```
+
+## Mudanças
+
+### 1. Nova edge function: `n8n-analysis-callback`
+- `verify_jwt = false` (n8n não tem JWT do usuário)
+- Autenticação por shared secret: header `x-callback-secret` validado contra `N8N_CALLBACK_SECRET`
+- Recebe payload: `{ document_id, risk_score, summary, extracted_data, alerts }`
+- Tolera os mesmos wrappers que o `n8n-process-document` atual (output array, myField, fences ```json)
+- Atualiza `procurement_documents` (status, risk_score, extracted_data, raw_content, metadata)
+- Substitui `risk_alerts` do documento
+- Insere `audit_logs` (action=`n8n_callback`)
+
+### 2. Atualizar `n8n-process-document`
+- Remover toda a lógica de parsing de resposta (não vem mais nada útil)
+- Após `fetch` do webhook: se `200` → retornar `{ success: true, pending: true, message: "Em processamento..." }`
+- Manter tratamento de 5xx/timeout como hoje
+- Continuar deixando `status = "processing"` no banco
+
+### 3. Frontend (`useDocumentUpload`)
+- Após invoke, se `pending: true`, mostrar toast "Documento em processamento, atualize em alguns minutos" em vez de exibir alertas/score
+- Invalidar queries normalmente
+- Não bloquear a UI esperando resultado
+
+### 4. Realtime opcional (não bloqueante)
+- Habilitar realtime em `procurement_documents` para o frontend atualizar automaticamente quando `status` mudar. Pode ficar para um follow-up.
+
+### 5. Secret novo
+- Adicionar `N8N_CALLBACK_SECRET` (gerar string aleatória forte). Usado:
+  - Pela edge function `n8n-analysis-callback` para validar header
+  - Pelo nó HTTP Request no n8n para enviar o mesmo header
+
+## Ações do usuário no n8n (depois que eu publicar)
+
+1. Remover o último nó `Respond to Webhook` (posição 1280,192)
+2. Adicionar nó `HTTP Request` no final do fluxo:
+   - Method: `POST`
+   - URL: `https://ktqrkijazzpafmfbkohe.supabase.co/functions/v1/n8n-analysis-callback`
+   - Header: `x-callback-secret: <valor do N8N_CALLBACK_SECRET>`
+   - Header: `Content-Type: application/json`
+   - Body (JSON): repassar `{{$json.document_id}}` + saída do `Information Extractor`
+3. Propagar `document_id` do webhook inicial até o final do fluxo (usar `Set` ou referenciar `$('Webhook').item.json.document_id`)
+4. (Boa prática) Mover a chave Mistral hardcoded para Credentials do n8n
 
 ## Detalhes técnicos
 
-### 1. Frontend — `src/components/wizard/StepDocumentData.tsx`
-
-- Adicionar dependência `pdf-lib` (já estamos usando libs de PDF no projeto, confirmar).
-- Nova função `extractFirstPagesPdf(file: File, maxPages = 30): Promise<Blob>`:
-  - Lê o `File` como `ArrayBuffer` em streaming (`file.slice` por trechos se necessário — `pdf-lib` aceita o buffer inteiro, mas para 1 GB pode estourar memória do browser; nesse caso ler o arquivo todo é inevitável para abrir o PDF, então fica como está).
-  - **Plano B se 1 GB não couber em memória do browser:** usar `pdfjs-dist` (que já lida com PDFs grandes em streaming) para extrair as primeiras páginas em modo `range` e remontar com `pdf-lib`. Decisão na implementação.
-  - Cria um novo `PDFDocument`, copia as primeiras `min(maxPages, total)` páginas e devolve um `Blob application/pdf`.
-- Em `extractMetadataViaN8n(selectedFile)`:
-  - Gerar o recorte: `const slice = await extractFirstPagesPdf(selectedFile, 30)`.
-  - Fazer upload do recorte em `_tmp/<userId>/<uuid>-header-<safeName>` (ao invés do arquivo inteiro).
-  - Chamar a Edge Function com o `file_path` do recorte, `file_name` original e `file_size` do recorte.
-  - Remover o `setExtractionDone(true)` no caminho de 413, pois o caminho de 413 deixa de existir.
-- Não tocar no upload do PDF completo usado em outras etapas do wizard / pipeline de risco.
-
-### 2. Edge Function — `supabase/functions/extract-metadata-n8n/index.ts`
-
-- Remover o bloqueio `MAX_N8N_BYTES = 100 MB` que adicionei no último ciclo (não é mais necessário, o frontend já manda recorte pequeno).
-- Manter o resto igual: gera signed URL de 2h, envia payload duplicado ao n8n, parseia resposta.
-- Manter logs de tamanho recebido para auditar que está chegando pequeno.
-
-### 3. UX no wizard
-
-- Toast informativo: "Analisando primeiras 30 páginas do edital para extrair metadados…" antes da chamada.
-- Em caso de erro do n8n (502 transitório), manter o fallback amigável que já existe ("preencha manualmente"), sem travar o wizard.
-
-## O que NÃO está neste plano
-
-- Mudar o workflow do n8n para Range/streaming — exige editar lá, não no Lovable.
-- Análise de risco/conformidade do PDF inteiro (cláusulas, anexos, planilhas). Esse pipeline continua usando o arquivo completo via o caminho atual (RAG/chunks) e deve ser tratado num plano separado quando você quiser revisitá-lo.
-
-## Validação
-
-1. Subir um PDF pequeno (~5 MB) → confirmar que ainda funciona (recorte vira o próprio arquivo).
-2. Subir o PDF de 287 MB do teste anterior → confirmar que o recorte sobe em poucos segundos e o n8n responde 200 com metadados preenchidos.
-3. Conferir logs da Edge Function: `file_size` recebido deve ser < 20 MB.
+- `n8n-analysis-callback`: reaproveita `severityToInt` e `clampScore` (copiar do `n8n-process-document` ou extrair para arquivo compartilhado — vou só duplicar para manter simples)
+- Adicionar entrada em `supabase/config.toml`: `[functions.n8n-analysis-callback] verify_jwt = false`
+- Validação Zod do payload do callback para retornar 400 com erro claro caso n8n mande estrutura errada
