@@ -161,6 +161,20 @@ Deno.serve(async (req) => {
       details: { via: "n8n", risk_score: riskScore, alerts_count: insertedCount },
     });
 
+    // Limpeza dos chunks após processamento bem-sucedido (best-effort)
+    try {
+      const { data: chunkFiles } = await supabase.storage
+        .from("pdf-chunks")
+        .list(`chunks/${document_id}`);
+
+      if (chunkFiles && chunkFiles.length > 0) {
+        const paths = chunkFiles.map((f) => `chunks/${document_id}/${f.name}`);
+        await supabase.storage.from("pdf-chunks").remove(paths);
+      }
+    } catch (cleanupErr) {
+      console.warn("Cleanup warning:", cleanupErr);
+    }
+
     return new Response(
       JSON.stringify({ success: true, risk_score: riskScore, alerts_count: insertedCount }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
