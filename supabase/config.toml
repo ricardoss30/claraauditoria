@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.extract-metadata-n8n]
 verify_jwt = false
+
+[functions.n8n-analysis-callback]
+verify_jwt = false

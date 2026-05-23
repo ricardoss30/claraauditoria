@@ -212,8 +212,10 @@ export function useDocumentUpload() {
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
 
       toast({
-        title: "Documento processado",
-        description: `${fnData?.alerts_count || 0} alerta(s) gerado(s). Score de risco: ${fnData?.risk_score ?? "N/A"}`,
+        title: fnData?.pending ? "Análise em andamento" : "Documento processado",
+        description: fnData?.pending
+          ? (fnData?.message || "O n8n está processando em segundo plano. Atualize em alguns minutos.")
+          : `${fnData?.alerts_count || 0} alerta(s) gerado(s). Score de risco: ${fnData?.risk_score ?? "N/A"}`,
       });
       return doc.id;
     } catch (e: any) {
@@ -267,8 +269,10 @@ export function useDocumentUpload() {
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
 
       toast({
-        title: "Documento reprocessado",
-        description: `${fnData?.alerts_count || 0} alerta(s) gerado(s). Score de risco: ${fnData?.risk_score ?? "N/A"}`,
+        title: fnData?.pending ? "Reanálise em andamento" : "Documento reprocessado",
+        description: fnData?.pending
+          ? (fnData?.message || "O n8n está processando em segundo plano. Atualize em alguns minutos.")
+          : `${fnData?.alerts_count || 0} alerta(s) gerado(s). Score de risco: ${fnData?.risk_score ?? "N/A"}`,
       });
       return documentId;
     } catch (e: any) {
