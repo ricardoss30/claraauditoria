@@ -1,57 +1,61 @@
-## Diagnóstico
+# Plano de melhorias — Pipeline de PDF grande (até 2 GB)
 
-Puxei o JSON do workflow `j4d43UZrYceItJ5z`. O nó `HTTP Request` (id `79243cd8...`) que chama `n8n-analysis-callback` está com dois problemas:
+## 1. Criar bucket `pdf-chunks` (migration SQL)
 
-### Problema 1 — `document_id` vai com `=` extra (causa o 404)
+Migration via `supabase--migration`:
 
-Body atual do nó:
-```json
-={
-  "document_id": "={{ $('Webhook').item.json.body.document_id }}",
-  "result": {{ JSON.stringify($json.output) }}
-}
+- `insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types) values ('pdf-chunks', 'pdf-chunks', true, 52428800, ARRAY['application/pdf'])`
+- Políticas em `storage.objects` (bucket_id = 'pdf-chunks'):
+  - SELECT público (anon + authenticated) — necessário para URL pública usada pelo Mistral OCR
+  - INSERT / DELETE restritos: usamos `service_role` nas Edge Functions, que já bypassa RLS, então criaremos apenas a policy SELECT pública. INSERT/DELETE ficam exclusivos do service_role por padrão.
+
+## 2. Criar Edge Function `pdf-splitter`
+
+Arquivo novo: `supabase/functions/pdf-splitter/index.ts` com o código fornecido pelo usuário (download do PDF, split com `pdf-lib` em chunks de 150 páginas, upload em `pdf-chunks/chunks/{document_id}/chunk_N.pdf`, retorna array de URLs públicas).
+
+Registrar em `supabase/config.toml`:
+```
+[functions.pdf-splitter]
+verify_jwt = false
 ```
 
-No n8n, o `jsonBody` já começa com `=` (modo expressão). Quando você coloca **outro** `=` dentro da string (`"={{ ... }}"`), o n8n trata o `=` como literal e envia:
+Deploy automático pelo Lovable. Sem secrets novos (usa `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` já existentes).
 
+## 3. App web — verificação do payload
+
+Já verifiquei `supabase/functions/n8n-process-document/index.ts` (linhas 122-138): o payload enviado ao webhook do n8n **já inclui** `document_id`, `file_url`, `file_name`, `title`, `agency`, `modality`, `estimated_value`, `published_at`, `description`, `audit_criteria`, `analysis_rule_ids`, `risk_rule_ids`.
+
+E `src/hooks/useDocumentUpload.ts` já envia `document_id` ao invocar `n8n-process-document`.
+
+**Nenhuma alteração necessária no app web.**
+
+## 4. Limpeza automática de chunks em `n8n-analysis-callback`
+
+Edit cirúrgico em `supabase/functions/n8n-analysis-callback/index.ts`: inserir, imediatamente antes do `return new Response(...)` final de sucesso (após o `audit_logs.insert`), o bloco try/catch de cleanup fornecido — `storage.from("pdf-chunks").list(chunks/{document_id})` + `.remove(paths)`, com erro tratado como warning. Não toco em parsing, unwrap, severity, alerts.
+
+## Fora de escopo (confirmado)
+
+- Não criar/alterar tabelas
+- Não modificar as outras 12 Edge Functions
+- Não alterar payload de retorno do callback
+- Não tocar em RLS de tabelas existentes, auth ou system prompts
+
+## Detalhes técnicos
+
+```text
+App web ──► n8n-process-document ──► n8n webhook
+                                       │
+                                       ▼
+                            pdf-splitter (Edge Fn)  ── baixa PDF
+                                       │             ── divide 150 pp
+                                       ▼             ── salva pdf-chunks/
+                            retorna [url1, url2, ...]
+                                       │
+                            n8n itera URLs ──► Mistral OCR ──► GPT-5 (CLARA)
+                                                                    │
+                                                                    ▼
+                                                  n8n-analysis-callback
+                                                  (salva + limpa chunks)
 ```
-"document_id": "=f8239aee-b885-461c-aa9e-cd1844f2533e"
-```
 
-A edge function recebe esse UUID com `=` na frente, faz `.eq("id", "=f8239...")`, não encontra → retorna `404 "Documento não encontrado"`. É exatamente o erro que apareceu.
-
-### Problema 2 — `x-callback-secret` está com o service_role JWT
-
-O header `x-callback-secret` está com o mesmo valor do `Authorization` (JWT do service role). Isso **não** é o `N8N_CALLBACK_SECRET` configurado no Supabase. Quando o problema 1 for resolvido, o callback vai responder **401 Unauthorized** por causa desse mismatch.
-
-Curiosamente o secret também não deveria ser o JWT — é um shared secret separado que vive em `Deno.env.get("N8N_CALLBACK_SECRET")`.
-
-## Ações no n8n (workflow `j4d43UZrYceItJ5z`, nó `HTTP Request`)
-
-1. **Trocar o body JSON** para (remover o `=` antes de `{{` em `document_id`):
-   ```json
-   ={
-     "document_id": "{{ $('Webhook').item.json.body.document_id }}",
-     "result": {{ JSON.stringify($json.output) }}
-   }
-   ```
-
-2. **Trocar o header `x-callback-secret`** para o valor real do secret `N8N_CALLBACK_SECRET` (o que está cadastrado no Supabase em Settings → Functions). O ideal é guardá-lo em uma Credential do n8n e referenciar, em vez de hardcoded.
-
-3. **Remover o header `Authorization`** — a função está com `verify_jwt = false`, não precisa de JWT. Manter o JWT do service role exposto no n8n é risco de segurança. Só o `x-callback-secret` + `Content-Type: application/json` bastam.
-
-4. (Opcional) Mover a chave Mistral hardcoded no nó `EXTRAÇÃO_PDF` para uma Credential.
-
-## Validação
-
-Após os ajustes, subir um novo PDF de teste. O esperado:
-- n8n responde 200 imediato no webhook inicial
-- Ao final, `HTTP Request` retorna 200 do callback
-- `procurement_documents.status` vira `processed`, `risk_score` é preenchido e `risk_alerts` são inseridos
-- `audit_logs` recebe entrada `action: n8n_callback`
-
-Se quiser, depois disso eu também posso adicionar um log mais detalhado no `n8n-analysis-callback` (logar `document_id` recebido) para facilitar diagnóstico futuro.
-
-## Sem mudanças de código
-
-Os ajustes são 100% no n8n. Nenhum arquivo do projeto precisa ser editado.
+Após sua aprovação, executo os 3 itens (bucket + função + cleanup) em uma única passada.
