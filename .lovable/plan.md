@@ -1,70 +1,57 @@
-## Objetivo
+## Diagnóstico
 
-Mudar a arquitetura do n8n de "request/response síncrono" para "fire-and-forget + callback assíncrono", eliminando o erro 524 (Cloudflare timeout) em PDFs grandes.
+Puxei o JSON do workflow `j4d43UZrYceItJ5z`. O nó `HTTP Request` (id `79243cd8...`) que chama `n8n-analysis-callback` está com dois problemas:
 
-## Fluxo final
+### Problema 1 — `document_id` vai com `=` extra (causa o 404)
 
-```
-Frontend → n8n-process-document (POST)
-              ↓
-              POST n8n webhook (com document_id + file_url)
-              ↓
-              n8n responde 200 imediato (Respond to Webhook1) ✓
-              ↓
-              [n8n processa em background: Mistral OCR + Gemini]
-              ↓
-              n8n chama POST n8n-analysis-callback
-                        (document_id, risk_score, summary, alerts, extracted_data)
-              ↓
-              Edge function grava resultado em procurement_documents + risk_alerts
-              ↓
-Frontend (realtime ou polling) vê status mudar de "processing" → "processed"
+Body atual do nó:
+```json
+={
+  "document_id": "={{ $('Webhook').item.json.body.document_id }}",
+  "result": {{ JSON.stringify($json.output) }}
+}
 ```
 
-## Mudanças
+No n8n, o `jsonBody` já começa com `=` (modo expressão). Quando você coloca **outro** `=` dentro da string (`"={{ ... }}"`), o n8n trata o `=` como literal e envia:
 
-### 1. Nova edge function: `n8n-analysis-callback`
-- `verify_jwt = false` (n8n não tem JWT do usuário)
-- Autenticação por shared secret: header `x-callback-secret` validado contra `N8N_CALLBACK_SECRET`
-- Recebe payload: `{ document_id, risk_score, summary, extracted_data, alerts }`
-- Tolera os mesmos wrappers que o `n8n-process-document` atual (output array, myField, fences ```json)
-- Atualiza `procurement_documents` (status, risk_score, extracted_data, raw_content, metadata)
-- Substitui `risk_alerts` do documento
-- Insere `audit_logs` (action=`n8n_callback`)
+```
+"document_id": "=f8239aee-b885-461c-aa9e-cd1844f2533e"
+```
 
-### 2. Atualizar `n8n-process-document`
-- Remover toda a lógica de parsing de resposta (não vem mais nada útil)
-- Após `fetch` do webhook: se `200` → retornar `{ success: true, pending: true, message: "Em processamento..." }`
-- Manter tratamento de 5xx/timeout como hoje
-- Continuar deixando `status = "processing"` no banco
+A edge function recebe esse UUID com `=` na frente, faz `.eq("id", "=f8239...")`, não encontra → retorna `404 "Documento não encontrado"`. É exatamente o erro que apareceu.
 
-### 3. Frontend (`useDocumentUpload`)
-- Após invoke, se `pending: true`, mostrar toast "Documento em processamento, atualize em alguns minutos" em vez de exibir alertas/score
-- Invalidar queries normalmente
-- Não bloquear a UI esperando resultado
+### Problema 2 — `x-callback-secret` está com o service_role JWT
 
-### 4. Realtime opcional (não bloqueante)
-- Habilitar realtime em `procurement_documents` para o frontend atualizar automaticamente quando `status` mudar. Pode ficar para um follow-up.
+O header `x-callback-secret` está com o mesmo valor do `Authorization` (JWT do service role). Isso **não** é o `N8N_CALLBACK_SECRET` configurado no Supabase. Quando o problema 1 for resolvido, o callback vai responder **401 Unauthorized** por causa desse mismatch.
 
-### 5. Secret novo
-- Adicionar `N8N_CALLBACK_SECRET` (gerar string aleatória forte). Usado:
-  - Pela edge function `n8n-analysis-callback` para validar header
-  - Pelo nó HTTP Request no n8n para enviar o mesmo header
+Curiosamente o secret também não deveria ser o JWT — é um shared secret separado que vive em `Deno.env.get("N8N_CALLBACK_SECRET")`.
 
-## Ações do usuário no n8n (depois que eu publicar)
+## Ações no n8n (workflow `j4d43UZrYceItJ5z`, nó `HTTP Request`)
 
-1. Remover o último nó `Respond to Webhook` (posição 1280,192)
-2. Adicionar nó `HTTP Request` no final do fluxo:
-   - Method: `POST`
-   - URL: `https://ktqrkijazzpafmfbkohe.supabase.co/functions/v1/n8n-analysis-callback`
-   - Header: `x-callback-secret: <valor do N8N_CALLBACK_SECRET>`
-   - Header: `Content-Type: application/json`
-   - Body (JSON): repassar `{{$json.document_id}}` + saída do `Information Extractor`
-3. Propagar `document_id` do webhook inicial até o final do fluxo (usar `Set` ou referenciar `$('Webhook').item.json.document_id`)
-4. (Boa prática) Mover a chave Mistral hardcoded para Credentials do n8n
+1. **Trocar o body JSON** para (remover o `=` antes de `{{` em `document_id`):
+   ```json
+   ={
+     "document_id": "{{ $('Webhook').item.json.body.document_id }}",
+     "result": {{ JSON.stringify($json.output) }}
+   }
+   ```
 
-## Detalhes técnicos
+2. **Trocar o header `x-callback-secret`** para o valor real do secret `N8N_CALLBACK_SECRET` (o que está cadastrado no Supabase em Settings → Functions). O ideal é guardá-lo em uma Credential do n8n e referenciar, em vez de hardcoded.
 
-- `n8n-analysis-callback`: reaproveita `severityToInt` e `clampScore` (copiar do `n8n-process-document` ou extrair para arquivo compartilhado — vou só duplicar para manter simples)
-- Adicionar entrada em `supabase/config.toml`: `[functions.n8n-analysis-callback] verify_jwt = false`
-- Validação Zod do payload do callback para retornar 400 com erro claro caso n8n mande estrutura errada
+3. **Remover o header `Authorization`** — a função está com `verify_jwt = false`, não precisa de JWT. Manter o JWT do service role exposto no n8n é risco de segurança. Só o `x-callback-secret` + `Content-Type: application/json` bastam.
+
+4. (Opcional) Mover a chave Mistral hardcoded no nó `EXTRAÇÃO_PDF` para uma Credential.
+
+## Validação
+
+Após os ajustes, subir um novo PDF de teste. O esperado:
+- n8n responde 200 imediato no webhook inicial
+- Ao final, `HTTP Request` retorna 200 do callback
+- `procurement_documents.status` vira `processed`, `risk_score` é preenchido e `risk_alerts` são inseridos
+- `audit_logs` recebe entrada `action: n8n_callback`
+
+Se quiser, depois disso eu também posso adicionar um log mais detalhado no `n8n-analysis-callback` (logar `document_id` recebido) para facilitar diagnóstico futuro.
+
+## Sem mudanças de código
+
+Os ajustes são 100% no n8n. Nenhum arquivo do projeto precisa ser editado.
