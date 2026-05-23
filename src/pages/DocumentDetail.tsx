@@ -74,13 +74,11 @@ export default function DocumentDetail() {
         .eq("id", alertId);
       if (error) throw error;
 
-      const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from("audit_logs").insert({
-        action: "status_change",
-        resource_type: "alert",
-        resource_id: alertId,
-        user_id: user?.id,
-        details: { new_status: status },
+      await supabase.rpc("log_audit_event", {
+        _action: "status_change",
+        _resource_type: "alert",
+        _resource_id: alertId,
+        _details: { new_status: status },
       });
     },
     onSuccess: () => {

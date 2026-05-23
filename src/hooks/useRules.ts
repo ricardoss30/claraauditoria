@@ -37,13 +37,11 @@ export function useRules(scope: "risk" | "analysis" = "risk") {
         : await supabase.from("risk_rules").insert({ ...rest, parameters: safeParams, rule_scope: scope } as any);
       if (error) throw error;
 
-      const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from("audit_logs").insert({
-        action: id ? "update" : "create",
-        resource_type: "rule",
-        resource_id: id || undefined,
-        user_id: user?.id,
-        details: { name: rule.name },
+      await supabase.rpc("log_audit_event", {
+        _action: id ? "update" : "create",
+        _resource_type: "rule",
+        _resource_id: id ?? null,
+        _details: { name: rule.name },
       });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules", scope] }),
@@ -54,12 +52,11 @@ export function useRules(scope: "risk" | "analysis" = "risk") {
       const { error } = await supabase.from("risk_rules").delete().eq("id", id);
       if (error) throw error;
 
-      const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from("audit_logs").insert({
-        action: "delete",
-        resource_type: "rule",
-        resource_id: id,
-        user_id: user?.id,
+      await supabase.rpc("log_audit_event", {
+        _action: "delete",
+        _resource_type: "rule",
+        _resource_id: id,
+        _details: {},
       });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rules", scope] }),
