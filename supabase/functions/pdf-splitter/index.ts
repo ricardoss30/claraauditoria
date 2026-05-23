@@ -59,11 +59,12 @@ Deno.serve(async (req) => {
 
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
+      const { data: signed, error: signErr } = await supabase.storage
         .from("pdf-chunks")
-        .getPublicUrl(chunkPath);
+        .createSignedUrl(chunkPath, 60 * 60); // 1 hour
+      if (signErr || !signed?.signedUrl) throw signErr ?? new Error("Falha ao gerar URL assinada");
 
-      chunkUrls.push(urlData.publicUrl);
+      chunkUrls.push(signed.signedUrl);
       chunkIndex++;
     }
 

@@ -35,14 +35,12 @@ export function useAlerts() {
         .eq("id", id);
       if (error) throw error;
 
-      // Log audit
-      const { data: { user } } = await supabase.auth.getUser();
-      await supabase.from("audit_logs").insert({
-        action: "status_change",
-        resource_type: "alert",
-        resource_id: id,
-        user_id: user?.id,
-        details: { new_status: status },
+      // Log audit (server-side via SECURITY DEFINER function)
+      await supabase.rpc("log_audit_event", {
+        _action: "status_change",
+        _resource_type: "alert",
+        _resource_id: id,
+        _details: { new_status: status },
       });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["alerts"] }),

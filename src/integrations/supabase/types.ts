@@ -614,6 +614,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      log_audit_event: {
+        Args: {
+          _action: string
+          _details?: Json
+          _resource_id?: string
+          _resource_type: string
+        }
+        Returns: string
+      }
       match_conhecimento_chunks: {
         Args: { filter?: Json; match_count?: number; query_embedding: string }
         Returns: {
