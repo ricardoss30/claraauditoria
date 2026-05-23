@@ -137,7 +137,8 @@ Deno.serve(async (req) => {
       raw_text: raw_text || null,
     };
 
-    // POST to n8n
+    // POST to n8n (fire-and-forget: n8n responde 200 imediatamente e processa em background;
+    // o resultado real chega depois via callback em n8n-analysis-callback).
     console.log(`Posting to n8n webhook for document ${document_id} (file_url=${fileUrl ? "yes" : "no"})...`);
     const n8nResp = await fetch(N8N_WEBHOOK_URL, {
       method: "POST",
@@ -145,12 +146,9 @@ Deno.serve(async (req) => {
       body: JSON.stringify(payload),
     });
 
-    const respText = await n8nResp.text();
+    const respText = await n8nResp.text().catch(() => "");
     if (!n8nResp.ok) {
       console.error(`n8n webhook error ${n8nResp.status}: ${respText.substring(0, 500)}`);
-      // Gateway timeouts (Cloudflare 524/504/502/408) — n8n continua processando do outro lado.
-      // Mantemos o documento como "processing" e devolvemos resposta amigável para o frontend
-      // ao invés de derrubar a UI com 500.
       if ([408, 502, 503, 504, 524].includes(n8nResp.status)) {
         await supabase.from("audit_logs").insert({
           action: mode === "reprocess" ? "reprocess" : "upload",
@@ -164,115 +162,12 @@ Deno.serve(async (req) => {
           JSON.stringify({
             success: true,
             pending: true,
-            message:
-              "O arquivo é grande e o n8n está processando em segundo plano. Atualize a página em alguns minutos para ver o resultado.",
+            message: "O n8n recebeu o arquivo e está processando em segundo plano. O resultado aparecerá em alguns minutos.",
           }),
           { headers: { ...corsHeaders, "Content-Type": "application/json" } },
         );
       }
       throw new Error(`Webhook n8n retornou erro ${n8nResp.status}: ${respText.substring(0, 300)}`);
-    }
-
-    let result: any = {};
-    try {
-      result = respText ? JSON.parse(respText) : {};
-    } catch {
-      console.warn("n8n response is not JSON, treating as summary text");
-      result = { summary: respText };
-    }
-
-    // Some n8n flows wrap output in an array
-    if (Array.isArray(result)) result = result[0] || {};
-    // Or under .data / .json
-    if (result?.data && typeof result.data === "object") result = { ...result, ...result.data };
-    if (result?.json && typeof result.json === "object") result = { ...result, ...result.json };
-
-    // Tolerate "Respond to Webhook" wrappers that put the real JSON inside a
-    // single string field (e.g. { myField: "...json..." }, { output: "..." },
-    // { text: "..." }). We try to extract the embedded JSON object.
-    const tryUnwrap = (val: unknown): any | null => {
-      if (typeof val !== "string") return null;
-      const trimmed = val.trim();
-      // Strip ```json ... ``` fences if present
-      const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-      const raw = fenced ? fenced[1] : trimmed;
-      const start = raw.indexOf("{");
-      const end = raw.lastIndexOf("}");
-      if (start === -1 || end === -1 || end <= start) return null;
-      try { return JSON.parse(raw.slice(start, end + 1)); } catch { return null; }
-    };
-
-    const hasExpectedKeys = (o: any) =>
-      o && typeof o === "object" &&
-      ("risk_score" in o || "summary" in o || "alerts" in o || "extracted_data" in o);
-
-    if (!hasExpectedKeys(result)) {
-      const candidates = [
-        result?.myField, result?.output, result?.text, result?.body, result?.result, result?.response,
-      ];
-      // Also handle output as array of { text }
-      if (Array.isArray(result?.output) && result.output[0]?.text) {
-        candidates.push(result.output[0].text);
-      }
-      for (const c of candidates) {
-        const unwrapped = tryUnwrap(c);
-        if (hasExpectedKeys(unwrapped)) {
-          console.log("Unwrapped n8n wrapper field into structured result");
-          result = unwrapped;
-          break;
-        }
-      }
-    }
-
-    const riskScore = clampScore(result.risk_score ?? 0);
-    const summary: string | undefined = result.summary || result.analysis;
-    const extractedData = (typeof result.extracted_data === "object" && result.extracted_data) || {};
-    const alerts: any[] = Array.isArray(result.alerts) ? result.alerts : [];
-
-    // Persist document
-    const mergedExtracted: any = {
-      ...extractedData,
-      ...(audit_criteria ? { audit_criteria } : {}),
-      ...(analysis_rule_ids?.length ? { analysis_rule_ids } : {}),
-      ...(risk_rule_ids?.length ? { risk_rule_ids } : {}),
-      n8n_processed_at: new Date().toISOString(),
-    };
-
-    const updatePayload: Record<string, any> = {
-      status: "processed",
-      risk_score: riskScore,
-      extracted_data: mergedExtracted,
-    };
-    if (summary && typeof summary === "string") updatePayload.raw_content = summary;
-    if (extractedData.title && !doc.title) updatePayload.title = extractedData.title;
-    if (extractedData.agency && !doc.agency) updatePayload.agency = extractedData.agency;
-    if (extractedData.modality && !doc.modality) updatePayload.modality = extractedData.modality;
-    if (extractedData.estimated_value && !doc.estimated_value) updatePayload.estimated_value = extractedData.estimated_value;
-    if (extractedData.description && !doc.description) updatePayload.description = extractedData.description;
-
-    await supabase.from("procurement_documents").update(updatePayload).eq("id", document_id);
-
-    // Replace alerts
-    await supabase.from("risk_alerts").delete().eq("document_id", document_id);
-
-    let insertedCount = 0;
-    if (alerts.length > 0) {
-      const rows = alerts.map((a) => ({
-        document_id,
-        alert_type: a.alert_type || a.type || "irregularidade",
-        title: a.title || "Alerta",
-        description: a.description || null,
-        severity: severityToInt(a.severity),
-        evidence: a.evidence || null,
-        criteria: a.criteria || null,
-        review_notes: a.review_notes || a.recommendation || null,
-        status: "pending",
-      }));
-      const { error: insErr, count } = await supabase
-        .from("risk_alerts")
-        .insert(rows, { count: "exact" });
-      if (insErr) console.error("Failed to insert alerts:", insErr);
-      else insertedCount = count || rows.length;
     }
 
     // Audit log
@@ -282,11 +177,15 @@ Deno.serve(async (req) => {
       resource_id: document_id,
       user_id: callerId,
       ip_address: clientIp,
-      details: { via: "n8n", risk_score: riskScore, alerts_count: insertedCount },
+      details: { via: "n8n", dispatched: true },
     });
 
     return new Response(
-      JSON.stringify({ success: true, risk_score: riskScore, alerts_count: insertedCount }),
+      JSON.stringify({
+        success: true,
+        pending: true,
+        message: "Documento enviado para análise. O resultado aparecerá em alguns minutos.",
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (e) {
