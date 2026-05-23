@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.n8n-analysis-callback]
 verify_jwt = false
+
+[functions.pdf-splitter]
+verify_jwt = false
