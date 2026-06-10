@@ -68,6 +68,24 @@ Deno.serve(async (req) => {
       );
     }
 
+    const cleanEmail = String(email).trim().toLowerCase();
+    const cleanName = full_name ? String(full_name).trim() : undefined;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(cleanEmail)) {
+      return new Response(
+        JSON.stringify({ error: "Email inválido" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (String(password).length < 6) {
+      return new Response(
+        JSON.stringify({ error: "Senha deve ter pelo menos 6 caracteres" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     // Gestor cannot create admin users
     if (isGestor && !isAdmin && role === "admin") {
       return new Response(
@@ -87,11 +105,12 @@ Deno.serve(async (req) => {
 
     const { data: newUser, error: createError } =
       await supabaseAdmin.auth.admin.createUser({
-        email,
+        email: cleanEmail,
         password,
         email_confirm: true,
-        user_metadata: { full_name: full_name || email },
+        user_metadata: { full_name: cleanName || cleanEmail },
       });
+
 
     if (createError) {
       return new Response(JSON.stringify({ error: createError.message }), {
