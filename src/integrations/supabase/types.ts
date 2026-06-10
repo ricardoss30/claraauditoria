@@ -210,6 +210,60 @@ export type Database = {
         }
         Relationships: []
       }
+      document_chunks: {
+        Row: {
+          chunk_index: number
+          created_at: string
+          document_id: string
+          file_name: string | null
+          id: string
+          job_id: string | null
+          metadata: Json | null
+          page_end: number | null
+          page_start: number | null
+          source_url: string | null
+          status: string | null
+          storage_path: string | null
+          text: string
+          total_pages: number | null
+          updated_at: string
+        }
+        Insert: {
+          chunk_index: number
+          created_at?: string
+          document_id: string
+          file_name?: string | null
+          id?: string
+          job_id?: string | null
+          metadata?: Json | null
+          page_end?: number | null
+          page_start?: number | null
+          source_url?: string | null
+          status?: string | null
+          storage_path?: string | null
+          text: string
+          total_pages?: number | null
+          updated_at?: string
+        }
+        Update: {
+          chunk_index?: number
+          created_at?: string
+          document_id?: string
+          file_name?: string | null
+          id?: string
+          job_id?: string | null
+          metadata?: Json | null
+          page_end?: number | null
+          page_start?: number | null
+          source_url?: string | null
+          status?: string | null
+          storage_path?: string | null
+          text?: string
+          total_pages?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       n8n_chat_histories_auditor: {
         Row: {
           id: number
@@ -231,15 +285,18 @@ export type Database = {
       procurement_documents: {
         Row: {
           agency: string | null
+          analysis_status: string | null
           created_at: string
           created_by: string | null
           deadline_at: string | null
           description: string | null
+          error_message: string | null
           estimated_value: number | null
           external_id: string | null
           extracted_data: Json | null
           file_url: string | null
           id: string
+          job_id: string | null
           modality: string | null
           published_at: string | null
           raw_content: string | null
@@ -247,19 +304,24 @@ export type Database = {
           source_id: string | null
           status: Database["public"]["Enums"]["processing_status"]
           title: string
+          total_chunks: number | null
+          total_pages: number | null
           updated_at: string
         }
         Insert: {
           agency?: string | null
+          analysis_status?: string | null
           created_at?: string
           created_by?: string | null
           deadline_at?: string | null
           description?: string | null
+          error_message?: string | null
           estimated_value?: number | null
           external_id?: string | null
           extracted_data?: Json | null
           file_url?: string | null
           id?: string
+          job_id?: string | null
           modality?: string | null
           published_at?: string | null
           raw_content?: string | null
@@ -267,19 +329,24 @@ export type Database = {
           source_id?: string | null
           status?: Database["public"]["Enums"]["processing_status"]
           title: string
+          total_chunks?: number | null
+          total_pages?: number | null
           updated_at?: string
         }
         Update: {
           agency?: string | null
+          analysis_status?: string | null
           created_at?: string
           created_by?: string | null
           deadline_at?: string | null
           description?: string | null
+          error_message?: string | null
           estimated_value?: number | null
           external_id?: string | null
           extracted_data?: Json | null
           file_url?: string | null
           id?: string
+          job_id?: string | null
           modality?: string | null
           published_at?: string | null
           raw_content?: string | null
@@ -287,6 +354,8 @@ export type Database = {
           source_id?: string | null
           status?: Database["public"]["Enums"]["processing_status"]
           title?: string
+          total_chunks?: number | null
+          total_pages?: number | null
           updated_at?: string
         }
         Relationships: [
@@ -654,7 +723,14 @@ export type Database = {
     Enums: {
       alert_status: "pending" | "under_review" | "confirmed" | "dismissed"
       app_role: "admin" | "gestor" | "auditor"
-      processing_status: "pending" | "processing" | "processed" | "error"
+      processing_status:
+        | "pending"
+        | "processing"
+        | "processed"
+        | "error"
+        | "splitting"
+        | "split_complete"
+        | "split_error"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -784,7 +860,15 @@ export const Constants = {
     Enums: {
       alert_status: ["pending", "under_review", "confirmed", "dismissed"],
       app_role: ["admin", "gestor", "auditor"],
-      processing_status: ["pending", "processing", "processed", "error"],
+      processing_status: [
+        "pending",
+        "processing",
+        "processed",
+        "error",
+        "splitting",
+        "split_complete",
+        "split_error",
+      ],
     },
   },
 } as const
