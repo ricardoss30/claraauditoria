@@ -114,11 +114,11 @@ export default function UsersManagement() {
     if (!editUserId) return;
     setSaving(true);
     try {
-      const body: Record<string, string> = { action: "update", user_id: editUserId, full_name: editName, email: editEmail };
+      const body: Record<string, string> = { action: "update", user_id: editUserId, full_name: editName.trim(), email: editEmail.trim().toLowerCase() };
       if (editPassword) body.password = editPassword;
       const { data: result, error } = await supabase.functions.invoke("manage-user", { body });
-      if (error) throw error;
       if (result?.error) throw new Error(result.error);
+      if (error) throw error;
       toast.success("Usuário atualizado com sucesso");
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setEditDialogOpen(false);
@@ -142,8 +142,8 @@ export default function UsersManagement() {
       const { data: result, error } = await supabase.functions.invoke("manage-user", {
         body: { action: "delete", user_id: deleteUserId },
       });
-      if (error) throw error;
       if (result?.error) throw new Error(result.error);
+      if (error) throw error;
       toast.success("Usuário excluído com sucesso");
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setDeleteDialogOpen(false);
@@ -162,10 +162,15 @@ export default function UsersManagement() {
     setCreating(true);
     try {
       const { data: result, error } = await supabase.functions.invoke("create-user", {
-        body: { email: newEmail, password: newPassword, full_name: newFullName, role: newRole },
+        body: {
+          email: newEmail.trim().toLowerCase(),
+          password: newPassword,
+          full_name: newFullName.trim(),
+          role: newRole,
+        },
       });
-      if (error) throw error;
       if (result?.error) throw new Error(result.error);
+      if (error) throw error;
       toast.success("Usuário criado com sucesso");
       queryClient.invalidateQueries({ queryKey: ["users"] });
       setDialogOpen(false);
@@ -179,6 +184,7 @@ export default function UsersManagement() {
       setCreating(false);
     }
   };
+
 
   return (
     <Card>
