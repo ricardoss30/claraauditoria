@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const N8N_WEBHOOK_URL =
-  "https://ricardoss30.app.n8n.cloud/webhook/ebc237a3-02cb-4987-bca6-0fd09ab8d983/claraauditoria";
+  "https://ricardoss30.app.n8n.cloud/webhook/clara-prod-1781177554849/claraauditoria";
 
 function severityToInt(sev: unknown): number {
   if (typeof sev === "number" && isFinite(sev)) {

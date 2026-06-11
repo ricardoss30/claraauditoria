@@ -1,24 +1,33 @@
+## Objetivo
 
-## Problema
-Ao cadastrar `maia@jria.com.br`, o Supabase Auth retorna `400 Unable to validate email address: invalid format`. Causa típica: espaço em branco invisível ou maiúscula colada no campo. O frontend ainda esconde a mensagem real exibindo apenas "Edge Function returned a non-2xx status code".
+Garantir que o fluxo de envio para o N8N use as duas URLs corretas:
 
-## Mudanças
+1. **Etapa 1 (extração do cabeçalho)** — já aponta corretamente para:
+   `https://ricardoss30.app.n8n.cloud/webhook/ebc237a3-02cb-4987-bca6-0fd09ab8d983/claraauditoriatitulo`
+   → Nenhuma mudança necessária.
 
-### 1. `supabase/functions/create-user/index.ts`
-- `const cleanEmail = String(email ?? "").trim().toLowerCase();`
-- `const cleanName = full_name ? String(full_name).trim() : undefined;`
-- Validar com regex `^[^\s@]+@[^\s@]+\.[^\s@]+$` → retornar 400 `"Email inválido"` se falhar.
-- Validar `password.length >= 6` → retornar 400 `"Senha deve ter pelo menos 6 caracteres"`.
-- Passar `cleanEmail`/`cleanName` para `admin.createUser`.
-- Manter o repasse de `createError.message` já existente.
+2. **Etapa 3 → "Processar" (análise completa)** — hoje aponta para uma URL antiga (`.../ebc237a3-.../claraauditoria`) e precisa ser trocada para:
+   `https://ricardoss30.app.n8n.cloud/webhook/clara-prod-1781177554849/claraauditoria`
 
-### 2. `src/pages/settings/UsersManagement.tsx`
-- Em `handleCreateUser` e `handleEditUser`: inverter a ordem — checar `result?.error` antes de `error` do invoke, para que a mensagem real seja exibida no toast.
-- Trim no `newEmail`/`newFullName` antes do invoke.
+O callback do N8N (`n8n-analysis-callback`) e o fluxo de geração de relatório já estão prontos e não precisam mudar.
+
+## Mudança
+
+### `supabase/functions/n8n-process-document/index.ts`
+- Trocar a constante `N8N_WEBHOOK_URL`:
+  - **De:** `https://ricardoss30.app.n8n.cloud/webhook/ebc237a3-02cb-4987-bca6-0fd09ab8d983/claraauditoria`
+  - **Para:** `https://ricardoss30.app.n8n.cloud/webhook/clara-prod-1781177554849/claraauditoria`
+- Método permanece `POST`, payload e headers inalterados.
 
 ## Fora do escopo
-- Nenhuma mudança em banco, RLS, outras edge functions ou no fluxo de auth.
+
+- Nenhuma alteração em banco, RLS, frontend, ou outras edge functions.
+- O webhook de extração de metadados (etapa 1) já está correto.
+- Fluxo de callback / geração de relatório permanece como está.
 
 ## Validação
-1. Tentar criar `maia@jria.com.br` novamente — deve cadastrar com sucesso.
-2. Se o Supabase ainda recusar, o toast mostrará a razão específica (domínio, duplicado, etc.) em vez do erro genérico.
+
+1. Criar um novo documento via wizard.
+2. Etapa 1: confirmar que o cabeçalho continua sendo extraído (URL antiga, sem mudança).
+3. Etapa 3 → "Processar": verificar nos logs da função `n8n-process-document` que o POST sai para a nova URL `clara-prod-1781177554849/claraauditoria` com status 200.
+4. Confirmar que o callback chega e o relatório é gerado normalmente.
