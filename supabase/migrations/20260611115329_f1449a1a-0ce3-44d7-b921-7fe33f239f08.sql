@@ -1,0 +1,2 @@
+DROP POLICY IF EXISTS "Admin can delete alerts" ON public.risk_alerts;
+CREATE POLICY "Admin can delete alerts" ON public.risk_alerts FOR DELETE TO authenticated USING (has_role(auth.uid(), 'admin'::app_role));
