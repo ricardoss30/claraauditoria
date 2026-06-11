@@ -292,6 +292,7 @@ export type Database = {
           description: string | null
           error_message: string | null
           estimated_value: number | null
+          execution_id: string | null
           external_id: string | null
           extracted_data: Json | null
           file_url: string | null
@@ -317,6 +318,7 @@ export type Database = {
           description?: string | null
           error_message?: string | null
           estimated_value?: number | null
+          execution_id?: string | null
           external_id?: string | null
           extracted_data?: Json | null
           file_url?: string | null
@@ -342,6 +344,7 @@ export type Database = {
           description?: string | null
           error_message?: string | null
           estimated_value?: number | null
+          execution_id?: string | null
           external_id?: string | null
           extracted_data?: Json | null
           file_url?: string | null
