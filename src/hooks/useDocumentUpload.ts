@@ -127,6 +127,22 @@ export function useDocumentUpload() {
     return path;
   };
 
+/** Converte data de DD/MM/YYYY (ou outros formatos brasileiros) para YYYY-MM-DD */
+function sanitizeDate(dateStr: string): string {
+  if (!dateStr) return dateStr;
+  // Se já estiver em YYYY-MM-DD, retorna como está
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
+  // Tenta DD/MM/YYYY ou DD/MM/YY
+  const brMatch = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (brMatch) {
+    const [, d, m, y] = brMatch;
+    const year = y.length === 2 ? `20${y}` : y;
+    return `${year}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  // Fallback: retorna original (deixa o Postgres rejeitar se for inválido)
+  return dateStr;
+}
+
   const upload = async ({ file, text, audit_criteria, analysis_rule_ids, risk_rule_ids, metadata }: {
     file?: File | null;
     text?: string;
@@ -176,7 +192,7 @@ export function useDocumentUpload() {
           ...(metadata?.agency && { agency: metadata.agency }),
           ...(metadata?.modality && { modality: metadata.modality }),
           ...(metadata?.estimated_value && { estimated_value: metadata.estimated_value }),
-          ...(metadata?.published_at && { published_at: metadata.published_at }),
+          ...(metadata?.published_at && { published_at: sanitizeDate(metadata.published_at) }),
           ...(metadata?.description && { description: metadata.description }),
         })
         .select("id")
