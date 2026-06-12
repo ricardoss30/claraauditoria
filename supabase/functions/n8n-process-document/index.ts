@@ -106,7 +106,7 @@ Deno.serve(async (req) => {
 
     if (sourcePath) {
       // ~100 anos — efetivamente "nunca expira"
-      const EXPIRES_IN = 60 * 60 * 24 * 365 * 100;
+      const EXPIRES_IN = 60 * 60 * 24 * 7; // 7 days (max seguro para Supabase Storage)
       const { data: signed, error: signErr } = await supabase.storage
         .from("documents")
         .createSignedUrl(sourcePath, EXPIRES_IN);
